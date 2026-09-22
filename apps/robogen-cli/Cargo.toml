@@ -1,0 +1,16 @@
+[package]
+name = "robogen-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+robogen-cad = { path = "../../crates/robogen-cad" }
+robogen-export = { path = "../../crates/robogen-export" }
+robogen-project = { path = "../../crates/robogen-project" }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+
+[lints]
+workspace = true

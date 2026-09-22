@@ -1,0 +1,18 @@
+[lints]
+workspace = true
+
+[package]
+name = "robogen-project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+robogen-cad = { path = "../robogen-cad" }
+robogen-constraints = { path = "../robogen-constraints" }
+robogen-domain = { path = "../robogen-domain" }
+robogen-dsl = { path = "../robogen-dsl" }
+robogen-ir = { path = "../robogen-ir" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "0.8"
+

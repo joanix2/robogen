@@ -1,0 +1,15 @@
+[lints]
+workspace = true
+
+[package]
+name = "robogen-cad"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+robogen-domain = { path = "../robogen-domain" }
+robogen-ir = { path = "../robogen-ir" }
+robogen-sketch = { path = "../robogen-sketch" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+

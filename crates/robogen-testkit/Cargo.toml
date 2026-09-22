@@ -1,0 +1,15 @@
+[package]
+name = "robogen-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dev-dependencies]
+robogen-cad = { path = "../robogen-cad" }
+robogen-export = { path = "../robogen-export" }
+robogen-project = { path = "../robogen-project" }
+robogen-render = { path = "../robogen-render" }
+
+[lints]
+workspace = true

@@ -1,0 +1,30 @@
+module constrained_bracket;
+
+parameter WIDTH = 40 mm;
+parameter HEIGHT = 50 mm;
+parameter THICKNESS = 8 mm;
+
+material Aluminium6061 {
+    density: 2700 kg/m3;
+    young: 69 GPa;
+    poisson: 0.33;
+    yield_strength: 276 MPa;
+}
+
+sketch BracketProfile on XY {
+    rectangle outline {
+        origin: (0 mm, 0 mm);
+        width: WIDTH;
+        height: HEIGHT;
+    }
+
+    constrain horizontal(outline.bottom);
+    constrain vertical(outline.left);
+    constrain distance_x(outline.left, outline.right, WIDTH);
+    constrain distance_y(outline.bottom, outline.top, HEIGHT);
+}
+
+part Bracket {
+    material: Aluminium6061;
+    base = extrude(BracketProfile, THICKNESS);
+}

@@ -1,0 +1,13 @@
+[lints]
+workspace = true
+
+[package]
+name = "robogen-constraints"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+robogen-domain = { path = "../robogen-domain" }
+robogen-sketch = { path = "../robogen-sketch" }
+thiserror = "2"
+

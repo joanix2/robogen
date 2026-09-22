@@ -1,0 +1,13 @@
+[lints]
+workspace = true
+
+[package]
+name = "robogen-export"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+robogen-cad = { path = "../robogen-cad" }
+tempfile = "3"
+thiserror = "2"
+

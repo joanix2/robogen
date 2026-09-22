@@ -1,0 +1,19 @@
+[lints]
+workspace = true
+
+[package]
+name = "robogen-ui"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Native egui shell for RoboGen"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+egui = "0.31"
+robogen-cad = { path = "../robogen-cad" }
+robogen-dsl = { path = "../robogen-dsl" }
+robogen-project = { path = "../robogen-project" }
+robogen-render = { path = "../robogen-render" }

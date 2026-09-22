@@ -1,0 +1,3 @@
+schema_version = 1
+name = "Constrained Bracket"
+source = "main.rgn"
