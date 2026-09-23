@@ -1,7 +1,9 @@
-//! CAD backend boundary with a dependency-free triangulated extrusion backend.
+//! CAD boundary with native rectangle extrusion and a private mesh CSG adapter.
 
-use robogen_domain::{FeatureId, Length, PartId};
-use robogen_ir::{Feature, Part, SemanticModel};
+mod mesh_csg;
+
+use robogen_domain::{FeatureId, Length, PartId, SourceSpan};
+use robogen_ir::{Feature, Part, SemanticModel, SolidGeometry};
 use robogen_sketch::{Plane, Sketch, SketchEntity};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -58,16 +60,32 @@ pub enum CadError {
     MissingSketch,
     #[error("part `{0}` has no supported features")]
     EmptyPart(String),
+    #[error("solid geometry is unavailable in this CAD backend")]
+    SolidUnavailable { span: SourceSpan },
+    #[error("invalid solid geometry: {reason}")]
+    InvalidSolid { span: SourceSpan, reason: String },
+    #[error("solid geometry exceeds the {limit} limit")]
+    SolidLimit { span: SourceSpan, limit: &'static str },
+    #[error("mesh CSG backend failed")]
+    SolidBackendFailure { span: SourceSpan },
 }
 
 pub trait CadKernel: Send + Sync {
     fn extrude(&self, sketch: &Sketch, depth: Length) -> Result<Mesh, CadError>;
+
+    fn solid(&self, geometry: &SolidGeometry) -> Result<Mesh, CadError> {
+        Err(CadError::SolidUnavailable { span: geometry.span })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NativeCadKernel;
 
 impl CadKernel for NativeCadKernel {
+    fn solid(&self, geometry: &SolidGeometry) -> Result<Mesh, CadError> {
+        mesh_csg::build(geometry)
+    }
+
     fn extrude(&self, sketch: &Sketch, depth: Length) -> Result<Mesh, CadError> {
         if depth.metres() <= 0.0 {
             return Err(CadError::NonPositiveDepth);
@@ -143,6 +161,7 @@ pub fn build_part_mesh(
                     .ok_or(CadError::MissingSketch)?;
                 result.append(&kernel.extrude(sketch, *depth)?);
             }
+            Feature::Solid { geometry, .. } => result.append(&kernel.solid(geometry)?),
         }
     }
     if result.triangles.is_empty() {

@@ -407,9 +407,12 @@ fn dependencies_for<'a>(
     }
     for declaration in &ast.declarations {
         if let Declaration::Part(part) = declaration {
-            if part.features.iter().flat_map(|feature| &feature.args).any(|expr| {
-                matches!(&expr.kind, ExprKind::Reference(name) if sketches.contains(name.as_str()) || parameters.contains(name.as_str()))
-            }) {
+            let dependencies: BTreeSet<_> = sketches.union(&parameters).copied().collect();
+            let depends = part.features.iter().any(|feature| {
+                (!parameters.is_empty() && feature.operation != "extrude")
+                    || feature.args.iter().any(|expression| references_any(expression, &dependencies))
+            });
+            if depends {
                 dirty.insert(DirtyNode::Part(part.name.clone()));
             }
         }
@@ -418,7 +421,20 @@ fn dependencies_for<'a>(
 }
 
 fn references_any(expression: &Expr, names: &BTreeSet<&str>) -> bool {
-    matches!(&expression.kind, ExprKind::Reference(name) if names.contains(name.as_str()))
+    let mut pending = vec![expression];
+    while let Some(expression) = pending.pop() {
+        match &expression.kind {
+            ExprKind::Reference(name) if names.contains(name.as_str()) => return true,
+            ExprKind::Binary { left, right, .. } => {
+                pending.push(left);
+                pending.push(right);
+            }
+            ExprKind::Unary { value, .. } | ExprKind::Named { value, .. } => pending.push(value),
+            ExprKind::Vector(values) | ExprKind::Call { args: values, .. } => pending.extend(values),
+            _ => {}
+        }
+    }
+    false
 }
 
 fn quantity_expr(value: Quantity, span: SourceSpan) -> Expr {
@@ -650,6 +666,23 @@ part Body { material: PLA; base = extrude(Profile, DEPTH); }"#;
         assert!(!report
             .rebuilt
             .contains(&DirtyNode::Sketch("Profile".into())));
+        Ok(())
+    }
+
+    #[test]
+    fn arithmetic_parameter_dependencies_invalidate_extrusions() -> Result<(), Vec<Diagnostic>> {
+        let source = SOURCE.replace("parameter DEPTH = 4 mm;", "parameter DEPTH = WIDTH/10;")
+            .replace("extrude(Profile, DEPTH)", "extrude(Profile, DEPTH*2)");
+        let mut project = Project::from_source(source)?;
+        project.set_parameter("WIDTH", Quantity::Length(Length::from_millimetres(80.0)))
+            .map_err(|diagnostic| vec![diagnostic])?;
+        let report = project.rebuild()?;
+        assert!(report.rebuilt.contains(&DirtyNode::Parameter("DEPTH".into())));
+        assert!(report.rebuilt.contains(&DirtyNode::Part("Body".into())));
+        let robogen_ir::Feature::Extrude { depth, .. } = project.snapshot().model.parts["Body"].features[0] else {
+            return Err(vec![Diagnostic::error("test", "expected extrusion", SourceSpan::default())]);
+        };
+        assert_eq!(depth, Length::from_millimetres(16.0));
         Ok(())
     }
 

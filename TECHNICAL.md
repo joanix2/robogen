@@ -124,6 +124,21 @@ The topology and training views never invent metrics: they report their solver
 as unavailable. AI is represented by a disabled provider. Rapier, FEM/SIMP,
 Burn/PPO, STEP and production B-Rep integration remain later milestones.
 
+### M1 header revision (2026-09-22)
+
+The native shell now has two full-width headers shared by every workspace:
+`application_bar` contains only RoboGen at the left and the Profile menu at the
+right; `workspace_bar` contains Design, Optimisation and Apprentissage plus
+project actions. The profile menu explicitly reports an unconfigured profile;
+account settings remain disabled and no authentication backend was added.
+
+The headless UI suite verifies separate header rows, right-aligned profile,
+profile menu interaction and undo/camera commands at 1080x680. All 12 UI tests
+and all 41 workspace tests pass, as do workspace fmt/Clippy and the desktop
+build. Native X11 captures were inspected at 1440x831 and 1080x680; see
+`docs/screenshots/m1-design.png` and `docs/screenshots/m1-design-compact.png`.
+This validates the header revision, not the full M1 acceptance checklist.
+
 ## Architecture decisions
 
 The normative target architecture is documented in

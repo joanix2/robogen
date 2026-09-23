@@ -7,6 +7,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+csgrs = { version = "=0.15.0", default-features = false, features = ["f64", "earcut-io", "earclip-io", "chull-io"] }
 robogen-domain = { path = "../robogen-domain" }
 robogen-ir = { path = "../robogen-ir" }
 robogen-sketch = { path = "../robogen-sketch" }

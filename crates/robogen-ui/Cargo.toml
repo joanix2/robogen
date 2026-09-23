@@ -13,7 +13,9 @@ path = "src/lib.rs"
 
 [dependencies]
 egui = "0.31"
+robogen-agent-api = { path = "../robogen-agent-api" }
 robogen-cad = { path = "../robogen-cad" }
+robogen-domain = { path = "../robogen-domain" }
 robogen-dsl = { path = "../robogen-dsl" }
 robogen-project = { path = "../robogen-project" }
 robogen-render = { path = "../robogen-render" }

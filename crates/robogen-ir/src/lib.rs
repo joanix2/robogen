@@ -9,6 +9,8 @@ use robogen_sketch::{ConstraintKind, Plane, Rectangle, Sketch, SketchConstraint,
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod evaluation;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SemanticParameter {
     pub id: ParameterId,
@@ -18,12 +20,33 @@ pub struct SemanticParameter {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SolidGeometry {
+    pub operation: SolidOperation,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SolidOperation {
+    Box { size: [Length; 3] },
+    Cylinder { radius: Length, height: Length },
+    Translate { offset: [Length; 3], shape: Box<SolidGeometry> },
+    Union { shapes: Vec<SolidGeometry> },
+    Difference { base: Box<SolidGeometry>, tools: Vec<SolidGeometry> },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Feature {
     Extrude {
         id: FeatureId,
         name: String,
         sketch: SketchId,
         depth: Length,
+        span: SourceSpan,
+    },
+    Solid {
+        id: FeatureId,
+        name: String,
+        geometry: SolidGeometry,
         span: SourceSpan,
     },
 }
@@ -57,13 +80,35 @@ pub fn lower(module: &Module) -> LowerOutput {
         diagnostics: Vec::new(),
         parameters: BTreeMap::new(),
         resolving: BTreeSet::new(),
+        components: BTreeMap::new(),
+        resolved: BTreeMap::new(),
+        calls: Vec::new(),
+        arena: Vec::new(),
+        steps: 0,
+        emitted: 0,
+        depth: 0,
     };
+    let mut names = BTreeSet::new();
     for declaration in &module.declarations {
+        let (name, span) = match declaration {
+            Declaration::Parameter(value) => (&value.name, value.span),
+            Declaration::Material(value) => (&value.name, value.span),
+            Declaration::Sketch(value) => (&value.name, value.span),
+            Declaration::Part(value) => (&value.name, value.span),
+            Declaration::Component(value) => (&value.name, value.span),
+        };
+        if !names.insert(name) {
+            context.error("E230", format!("duplicate declaration `{name}`"), span);
+        }
         if let Declaration::Parameter(parameter) = declaration {
             context
                 .parameters
                 .insert(parameter.name.clone(), &parameter.value);
         }
+            if let Declaration::Component(component) = declaration {
+                context.validate_component(component);
+                context.components.insert(component.name.clone(), component);
+            }
     }
 
     let mut model = SemanticModel {
@@ -235,13 +280,24 @@ pub fn lower(module: &Module) -> LowerOutput {
                 }
             };
             let mut features = Vec::new();
+            let mut feature_names = BTreeSet::new();
             for feature in &part.features {
+                if !feature_names.insert(&feature.name) {
+                    context.error("E230", format!("duplicate feature `{}`", feature.name), feature.span);
+                    continue;
+                }
+                let qualified = format!("{}::{}::{}", module.name, part.name, feature.name);
                 if feature.operation != "extrude" {
-                    context.error(
-                        "E221",
-                        format!("unsupported feature `{}`", feature.operation),
-                        feature.span,
-                    );
+                    if let Some(geometry) = context.solid_feature(feature) {
+                        features.push(Feature::Solid {
+                            id: FeatureId::from_name(&qualified),
+                            name: feature.name.clone(), geometry, span: feature.span,
+                        });
+                    }
+                    continue;
+                }
+                if feature.args.len() != 2 {
+                    context.error("E222", "extrude expects exactly two positional arguments", feature.span);
                     continue;
                 }
                 let Some(Expr {
@@ -298,10 +354,22 @@ struct LowerContext<'a> {
     diagnostics: Vec<Diagnostic>,
     parameters: BTreeMap<String, &'a Expr>,
     resolving: BTreeSet<String>,
+    components: BTreeMap<String, &'a robogen_dsl::ComponentDecl>,
+    resolved: BTreeMap<String, Quantity>,
+    calls: Vec<(String, SourceSpan, SourceSpan)>,
+    arena: Vec<evaluation::Node>,
+    steps: usize,
+    emitted: usize,
+    depth: usize,
 }
 
 impl LowerContext<'_> {
     fn resolve_parameter(&mut self, name: &str, span: SourceSpan) -> Option<Quantity> {
+        if let Some(value) = self.resolved.get(name) { return Some(*value); }
+        if self.resolving.len() >= 32 {
+            self.error("E239", "parameter dependency depth limit exceeded", span);
+            return None;
+        }
         if !self.resolving.insert(name.to_owned()) {
             self.error("E201", format!("cyclic parameter `{name}`"), span);
             return None;
@@ -315,27 +383,13 @@ impl LowerContext<'_> {
             }
         };
         self.resolving.remove(name);
+        if let Some(value) = result { self.resolved.insert(name.to_owned(), value); }
         result
     }
 
     fn quantity(&mut self, expression: &Expr) -> Option<Quantity> {
-        match &expression.kind {
-            ExprKind::Reference(name) => self.resolve_parameter(name, expression.span),
-            ExprKind::String(_) => {
-                self.error("E203", "expected physical quantity", expression.span);
-                None
-            }
-            ExprKind::Number { value, unit } => {
-                parse_quantity(*value, unit.as_deref()).or_else(|| {
-                    self.error(
-                        "E204",
-                        format!("unsupported unit `{}`", unit.as_deref().unwrap_or("")),
-                        expression.span,
-                    );
-                    None
-                })
-            }
-        }
+        let value = self.evaluate(expression, &BTreeMap::new())?;
+        self.expect_quantity(value, expression.span)
     }
 
     fn length(&mut self, expression: &Expr) -> Option<Length> {
@@ -379,6 +433,10 @@ impl LowerContext<'_> {
         );
     }
     fn error(&mut self, code: &str, message: impl Into<String>, span: SourceSpan) {
+        let mut message = message.into();
+        for (name, call, definition) in &self.calls {
+            message.push_str(&format!("; component `{name}` called at {}..{}, defined at {}..{}", call.start, call.end, definition.start, definition.end));
+        }
         self.diagnostics
             .push(Diagnostic::error(code, message, span));
     }
