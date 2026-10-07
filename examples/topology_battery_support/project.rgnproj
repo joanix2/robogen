@@ -1,0 +1,3 @@
+schema_version = 1
+name = "Battery support constraints (solver unavailable)"
+source = "main.rgn"

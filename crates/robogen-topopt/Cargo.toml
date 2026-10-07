@@ -6,6 +6,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+robogen-domain = { path = "../robogen-domain" }
+robogen-ir = { path = "../robogen-ir" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

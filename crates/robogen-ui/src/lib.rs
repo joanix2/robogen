@@ -180,6 +180,14 @@ impl RoboGenUi {
         self.mode = WorkspaceMode::Design;
     }
 
+    pub fn load_topology_example(&mut self) {
+        self.set_dsl_source(include_str!(
+            "../../../examples/topology_battery_support/main.rgn"
+        ));
+        self.design_tab = DesignTab::Dsl;
+        self.mode = WorkspaceMode::Design;
+    }
+
     pub fn load_biped_example(&mut self) {
         self.set_dsl_source(include_str!("../../../examples/mini_biped/main.rgn"));
         self.camera = Camera {
@@ -458,6 +466,10 @@ impl RoboGenUi {
                             }
                             if ui.button("Batterie Li-ion (18 × 68 mm)").clicked() {
                                 self.load_battery_example();
+                                ui.close_menu();
+                            }
+                            if ui.button("Support batterie (contraintes TopOpt)").clicked() {
+                                self.load_topology_example();
                                 ui.close_menu();
                             }
                             if ui.button("Mini bipède — disposition").clicked() {
@@ -2300,6 +2312,28 @@ mod tests {
         state.set_dsl_source("module invalid; part");
         assert!(!state.can_export());
         Ok(())
+    }
+
+    #[test]
+    fn topology_example_reports_unavailability_and_preserves_undo() {
+        let mut state = RoboGenUi::default();
+        let previous = state.dsl_source().to_owned();
+        let mesh = state.cad_mesh.clone();
+        state.load_topology_example();
+        assert_eq!(state.design_tab, DesignTab::Dsl);
+        assert!(!state.can_export());
+        assert!(!state.request_export());
+        assert!(state.take_action().is_none());
+        assert!(state
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "E330"));
+        assert_eq!(state.cad_mesh, mesh);
+        assert!(state.undo());
+        assert_eq!(state.dsl_source(), previous);
+        assert!(state.can_export());
+        assert!(state.redo());
+        assert!(!state.can_export());
     }
 
     #[test]

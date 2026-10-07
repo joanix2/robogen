@@ -189,3 +189,18 @@ positions parametriques en geometrie. Il n'ajoute ni solveur d'assemblage, ni
 OptimizationSpec, ni backend TopOpt. Le ticket 15 definit la suite vers des
 supports generes depuis des contraintes ; les dependances M7/M8 restent
 inchangees. Cette tranche ne valide pas les jalons encore ouverts ci-dessus.
+
+## Contrat declaratif TopOpt (2026-10-07)
+
+[ADR-012](../adr/ADR-012-declarative-topology.md) ajoute un noeud Solid differe
+Topology et un TopologySpec versionne dans IR. TopOpt depend de IR/domain pour
+recevoir spec, materiau et revision ; Project orchestre son appel avant CAD,
+sans faire dependre IR de ses projections. Cette extension explicite le
+couplage d'orchestration deja present dans Project ; son extraction future
+devra deplacer les deux dispatchs ensemble.
+
+Le backend renvoie toujours indisponible. La declaration peut etre inspectee
+sans maillage mais aucun domaine n'est transforme en faux support. CAD refuse
+les noeuds non resolus, et Project bloque publication/export avec provenance.
+L'implementation numerique, la reconstruction, les contraintes geometriques et
+la revalidation restent M7/M8 ; ce contrat ne constitue pas leur livraison.

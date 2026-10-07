@@ -2364,6 +2364,7 @@ dependencies = [
  "robogen-domain",
  "robogen-dsl",
  "robogen-ir",
+ "robogen-topopt",
  "serde",
  "thiserror 2.0.20",
  "toml",
@@ -2421,6 +2422,8 @@ dependencies = [
 name = "robogen-topopt"
 version = "0.1.0"
 dependencies = [
+ "robogen-domain",
+ "robogen-ir",
  "serde",
  "thiserror 2.0.20",
 ]

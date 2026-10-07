@@ -1,3 +1,4 @@
+mod topology;
 use super::{parse_quantity, LowerContext, SolidGeometry, SolidOperation};
 use robogen_domain::{Angle, Length, Quantity, QuantityKind, SourceSpan};
 use robogen_dsl::{ComponentDecl, Expr, ExprKind, FeatureDecl};
@@ -28,6 +29,7 @@ enum Operation {
     Color([u8; 3], usize),
     Translate([Length; 3], usize),
     Rotate([Angle; 3], usize),
+    Topology(Box<crate::topology::TopologySpec<usize>>),
     Union(Vec<usize>),
     Compound(Vec<usize>),
     Difference(usize, Vec<usize>),
@@ -44,6 +46,7 @@ impl LowerContext<'_> {
                 | "color"
                 | "translate"
                 | "rotate"
+                | "topology"
                 | "union"
                 | "compound"
                 | "difference"
@@ -406,6 +409,12 @@ impl LowerContext<'_> {
         scope: &Scope,
         span: SourceSpan,
     ) -> Option<Value> {
+        if name == "topology" {
+            let spec = self.topology(args, scope, span)?;
+            return self
+                .node(Operation::Topology(Box::new(spec)), span)
+                .map(Value::Solid);
+        }
         if name == "compound" {
             if args.is_empty() || args.len() > 128 {
                 self.error("E236", "compound requires 1 to 128 positional solids", span);
@@ -566,6 +575,9 @@ impl LowerContext<'_> {
             | Operation::Rotate(_, shape)
             | Operation::Color(_, shape) => vec![*shape],
             Operation::Union(shapes) | Operation::Compound(shapes) => shapes.clone(),
+            Operation::Topology(specification) => {
+                specification.geometries().into_iter().copied().collect()
+            }
             Operation::Difference(base, tools) => std::iter::once(*base)
                 .chain(tools.iter().copied())
                 .collect(),
@@ -610,6 +622,11 @@ impl LowerContext<'_> {
                 angles: *angles,
                 shape: Box::new(self.materialize(*shape)),
             },
+            Operation::Topology(specification) => SolidOperation::Topology {
+                specification: Box::new(
+                    specification.map_geometry(|index| self.materialize(*index)),
+                ),
+            },
             Operation::Union(shapes) => SolidOperation::Union {
                 shapes: shapes
                     .iter()
@@ -641,6 +658,10 @@ fn type_kind(name: &str) -> Option<QuantityKind> {
         "Angle" => QuantityKind::Angle,
         "Density" => QuantityKind::Density,
         "Pressure" => QuantityKind::Pressure,
+        "Force" => QuantityKind::Force,
+        "Torque" => QuantityKind::Torque,
+        "Mass" => QuantityKind::Mass,
+        "Frequency" => QuantityKind::Frequency,
         _ => return None,
     })
 }
@@ -652,6 +673,10 @@ fn magnitude(value: Quantity) -> f64 {
         Quantity::Angle(value) => value.radians(),
         Quantity::Density(value) => value.kg_per_m3(),
         Quantity::Pressure(value) => value.pascals(),
+        Quantity::Force(value) => value.newtons(),
+        Quantity::Torque(value) => value.newton_metres(),
+        Quantity::Mass(value) => value.kilograms(),
+        Quantity::Frequency(value) => value.hertz(),
     }
 }
 
@@ -662,5 +687,11 @@ fn with_magnitude(kind: QuantityKind, value: f64) -> Quantity {
         QuantityKind::Angle => Quantity::Angle(robogen_domain::Angle::from_radians(value)),
         QuantityKind::Density => Quantity::Density(robogen_domain::Density::from_kg_per_m3(value)),
         QuantityKind::Pressure => Quantity::Pressure(robogen_domain::Pressure::from_pascals(value)),
+        QuantityKind::Force => Quantity::Force(robogen_domain::Force::from_newtons(value)),
+        QuantityKind::Torque => Quantity::Torque(robogen_domain::Torque::from_newton_metres(value)),
+        QuantityKind::Mass => Quantity::Mass(robogen_domain::Mass::from_kilograms(value)),
+        QuantityKind::Frequency => {
+            Quantity::Frequency(robogen_domain::Frequency::from_hertz(value))
+        }
     }
 }

@@ -127,3 +127,66 @@ place existing components through shared dimensional equations. These are
 placement equations, not executable mechanical/TopOpt constraints. Supports
 remain absent until the declarative constraint contracts and M7/M8 solver are
 implemented. See [ADR-011](../adr/ADR-011-component-placement.md).
+
+## Declarative Topology
+
+`topology(...)` returns a deferred `Solid`, not a Boolean or the design domain.
+All nine arguments are required: `name`, `domain`, `preserve`, `void`,
+`material`, `load_cases`, `objective`, `constraints`, `manufacturing`.
+Use ordinary component calls/bindings for geometry. Lists and the constructors
+below are interpreted in topology context; they are not general list-valued
+component parameters. See the complete
+[battery support example](../../examples/topology_battery_support/main.rgn).
+
+| Field | Accepted declaration |
+| --- | --- |
+| name | Quoted ASCII identifier, 1..64 characters, unique per feature |
+| domain | Solid expression |
+| preserve | 1..64 solids or `interface(name: "mount", shape: solid)` |
+| void | 0..64 excluded solid expressions |
+| material | Declared material with positive density/Young/yield strength and -1 < Poisson < 0.5 |
+| load_cases | 1..16 `load_case(name: "case", loads: [...], supports: [...])` |
+| objective | `minimize_mass` or `maximize_stiffness` |
+| constraints | 1..16 limit constructors, no duplicate kind |
+| manufacturing | Empty list or one `fdm(...)` / `cnc_3axis(...)` profile |
+
+Each load case requires 1..64 loads and 1..64 supports. Loads are
+`force(on: "interface", vector: [0 N, 0 N, -3 N])` or
+`moment(on: "interface", vector: [0 Nm, 200 Nmm, 0 Nm])`, with nonzero vectors.
+Supports are `fixed(on: "mount")`, `pin(on: "mount", axis: [1, 0, 0])` or
+`frictionless(on: "mount", normal: [0, 0, 1])`. Targets must resolve to an
+explicitly named preserved interface; duplicate supports on one target are
+rejected. Directions are dimensionless unit vectors. All cases are retained;
+none is averaged away. These region declarations do not solve surface load
+distribution or prove that supports prevent rigid-body motion.
+
+Limits: `max_displacement(Length)`, `max_stress(Pressure)`,
+`safety_factor(Scalar)`, `max_mass(Mass)`, `min_frequency(Frequency)`,
+`volume_fraction(Scalar)`. Values must be positive, safety factor at least 1,
+and volume fraction at most 1. Named `value:` arguments are also accepted.
+Objectives and limits are distinct; declaring one does not prove feasibility.
+
+FDM fields are `build_direction`, `min_thickness`, `min_hole`, `max_overhang`;
+lengths must be positive, angle in 0..90 deg. CNC fields are `tool_direction`
+and positive `tool_diameter`. Manufacturing directions, domain, regions and
+load vectors use the topology node's local frame. An outer transformation
+places the eventual result, not a new pose-dependent mechanical load case.
+
+New quantity kinds are `Force` (N/kN), `Torque` (Nm/Nmm), `Mass` (kg/g) and
+`Frequency` (Hz). Values are stored in SI. Existing quantity arithmetic rules
+still apply; this is not a general dimensional-algebra extension.
+
+Topology can be wrapped in color, translate, rotate, union, difference and
+compound, and referenced by another topology operation. Existing geometry
+expansion budgets still apply. Independent feature/part instances qualify IDs;
+repeated declarations of the same optimization name within one feature fail.
+`offset`, `sweep`, `fillet`, `hull`, `drill` and `|>` are not added or emulated.
+
+`inspect-topology` validates and reports declarations without CAD evaluation.
+Ordinary check/export returns E330 because the TopOpt backend is unavailable;
+CAD also rejects unresolved nodes directly. No input domain is presented as
+optimized geometry. E250..E258 diagnose structural/reference/range/option errors;
+existing argument, type and expansion errors retain their established codes.
+Unimplemented geometric checks, process capabilities, convergence and
+post-operation mechanical verification must pass before any future publication.
+Schema/ownership details are in [ADR-012](../adr/ADR-012-declarative-topology.md).

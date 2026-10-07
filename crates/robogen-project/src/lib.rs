@@ -10,6 +10,7 @@ use robogen_constraints::{ConstraintSolver, NativeConstraintSolver};
 use robogen_domain::{Diagnostic, PartId, Quantity, Severity, SourceSpan};
 use robogen_dsl::{Declaration, Expr, ExprKind, Module};
 use robogen_ir::{lower, SemanticModel};
+use robogen_topopt::{TopologyOptimizer, TopologyRequest, UnavailableTopologyOptimizer};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -273,11 +274,12 @@ impl SourceDocument {
 
 impl Project {
     pub fn from_source(source: impl Into<String>) -> Result<Self, Vec<Diagnostic>> {
-        Self::from_source_controlled(source.into(), &|| false, &|_, _| {})
+        Self::from_source_controlled(source.into(), 0, &|| false, &|_, _| {})
     }
 
     fn from_source_controlled(
         source: String,
+        revision: u64,
         cancelled: &dyn Fn() -> bool,
         progress: &dyn Fn(usize, usize),
     ) -> Result<Self, Vec<Diagnostic>> {
@@ -296,7 +298,7 @@ impl Project {
             return Err(diagnostics);
         }
         solve_constraints(&mut model, &mut diagnostics);
-        let meshes = build_all_meshes(&model, &mut diagnostics, cancelled, progress);
+        let meshes = build_all_meshes(&model, revision, &mut diagnostics, cancelled, progress);
         if diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -373,6 +375,10 @@ impl Project {
             return Err(diagnostics);
         }
 
+        reject_unresolved_topology(&model, 0, &mut diagnostics, &|| false);
+        if !diagnostics.is_empty() {
+            return Err(diagnostics);
+        }
         let mut meshes = self.snapshot.meshes.clone();
         for node in &dirty {
             if let DirtyNode::Part(name) = node {
@@ -416,14 +422,62 @@ fn solve_constraints(model: &mut SemanticModel, diagnostics: &mut Vec<Diagnostic
     }
 }
 
+fn reject_unresolved_topology(
+    model: &SemanticModel,
+    revision: u64,
+    diagnostics: &mut Vec<Diagnostic>,
+    cancelled: &dyn Fn() -> bool,
+) {
+    for specification in model.topology_operations() {
+        if cancelled() {
+            diagnostics.push(Diagnostic::error(
+                "E321",
+                "build cancelled",
+                specification.span,
+            ));
+            return;
+        }
+        let Some(material) = model
+            .materials
+            .values()
+            .find(|material| material.id == specification.material)
+        else {
+            diagnostics.push(Diagnostic::error(
+                "E330",
+                "topology material is missing",
+                specification.span,
+            ));
+            continue;
+        };
+        let request = TopologyRequest {
+            specification: specification.clone(),
+            material: material.clone(),
+            document_revision: revision,
+        };
+        let message = match UnavailableTopologyOptimizer.optimize(&request) {
+            Err(error) => format!(
+                "topology `{}`: {error}; no optimized geometry generated",
+                specification.name
+            ),
+            Ok(_) => "topology result publication is not implemented".to_owned(),
+        };
+        diagnostics.push(Diagnostic::error("E330", message, specification.span));
+    }
+}
+
 fn build_all_meshes(
     model: &SemanticModel,
+    revision: u64,
     diagnostics: &mut Vec<Diagnostic>,
     cancelled: &dyn Fn() -> bool,
     progress: &dyn Fn(usize, usize),
 ) -> BTreeMap<PartId, Mesh> {
     let mut meshes = BTreeMap::new();
     progress(0, model.parts.len());
+    reject_unresolved_topology(model, revision, diagnostics, cancelled);
+    if !diagnostics.is_empty() {
+        return meshes;
+    }
     for (index, part) in model.parts.values().enumerate() {
         match build_part_mesh_cancellable(model, part, &NativeCadKernel, cancelled) {
             Ok(mesh) => {
@@ -527,6 +581,10 @@ fn quantity_expr(value: Quantity, span: SourceSpan) -> Expr {
         Quantity::Angle(value) => (value.radians(), Some("rad".into())),
         Quantity::Density(value) => (value.kg_per_m3(), Some("kg/m3".into())),
         Quantity::Pressure(value) => (value.pascals(), Some("Pa".into())),
+        Quantity::Force(value) => (value.newtons(), Some("N".into())),
+        Quantity::Torque(value) => (value.newton_metres(), Some("Nm".into())),
+        Quantity::Mass(value) => (value.kilograms(), Some("kg".into())),
+        Quantity::Frequency(value) => (value.hertz(), Some("Hz".into())),
     };
     Expr {
         kind: ExprKind::Number { value, unit },

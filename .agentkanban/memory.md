@@ -29,3 +29,9 @@
   livraison du bipede. Autorisation d'un checkpoint local global des travaux
   courants (y compris servo/bibliotheque preexistants), sans cloturer les
   acceptations encore ouvertes, sans changement de lane et sans push.
+
+- 2026-10-07 : ticket 15 iteration 2 livre le contrat topology differe (ADR-012),
+  types physiques/IDs, validation semantique, refus CAD/projet E330, inspection
+  CLI et exemple topology_battery_support accessible en UI. 103 tests, fmt,
+  Clippy, builds et capture native passes. Aucun FEM/SIMP ni support genere ;
+  ticket global ouvert. Revision TopOpt worker-scoped, 0 en synchrone autonome.

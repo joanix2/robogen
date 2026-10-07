@@ -59,6 +59,14 @@ board, battery and camera with shared dimensional parameters. Open
 from constraints in the planned TopOpt path; they are not fabricated in this
 initial layout.
 
+The [declarative topology example](examples/topology_battery_support/README.md)
+defines a battery support's domain, preserved interfaces, exclusions, loads,
+limits and manufacturing profile through `topology(...)`. Inspect it with
+`cargo run -p robogen-cli -- inspect-topology examples/topology_battery_support/main.rgn`,
+or open **Exemples > Support batterie (contraintes TopOpt)**. Semantic validation
+is implemented; numerical optimization is not. Check/export explicitly fail
+until a real backend can generate and validate the support.
+
 Quality gates are `cargo fmt --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
 `cargo test --workspace`.

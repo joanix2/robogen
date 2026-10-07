@@ -80,3 +80,12 @@ Mini biped layout, 2026-10-07:
   pending the constraint/optimization pipeline. This demonstrates placement,
   not a walking robot or a TopOpt result. The corrected test window was left
   open for inspection; the earlier test instance was closed.
+
+Declarative topology, 2026-10-07:
+
+- [Topology declaration, 1440x831](topology-declaration-native.png): native
+	X11 client after selecting Exemples > Support batterie (contraintes TopOpt).
+	Visually inspected: DSL view selected, E330 at 23:12 with solver unavailable,
+	previous taxonomy explicitly marked stale, export and insertion disabled.
+	No forced resizing and no optimized geometry. Automated tests cover the
+	semantic contract, CAD refusal, CLI inspection, history and worker revisions.

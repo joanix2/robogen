@@ -376,6 +376,41 @@ test, fmt, Clippy and desktop build pass again. Final 1440x831 native capture:
 triangles and a 2583084-byte STL in /tmp. Compilation takes about 13 s in the
 local debug configuration and remains off the UI thread.
 
+## Declarative topology contract (2026-10-07)
+
+Ticket 15 iteration 2 implements ADR-012, not M7 FEM/SIMP. Domain owns Force,
+Torque, Mass, Frequency and OptimizationId/InterfaceId/LoadCaseId. IR owns
+`TopologySpec<G>` schema 1 and `SolidOperation::Topology`; the existing bounded
+evaluator lowers contextual calls/lists into a typed deferred geometry node.
+Specifications preserve local source spans, material identity, explicit regions,
+nonzero loads, supports, objective/limits and optional FDM/CNC declarations.
+Unknown or incompatible fields fail; semantic success does not prove geometry,
+mechanical feasibility, support sufficiency or printer compatibility.
+
+TopOpt now depends on IR/domain; Project depends on TopOpt for orchestration.
+`TopologyRequest` replaces its unused target-name/volume-fraction stub with a
+specification, material and compilation revision. The worker passes its scoped
+revision; standalone/synchronous builds use revision 0. No global cache identity
+is implied. The unavailable optimizer still produces no numerical result.
+Project reports E330 at each unresolved call before meshing; CAD rejects such
+nodes directly under transforms, Booleans and compounds. No domain fallback is
+used. The old successful snapshot may remain for display but export is blocked.
+Future result publication must add capability checks, revision/hash identity,
+progress, cancellation, convergence and post-reconstruction/post-operation
+validation; even an unexpected successful placeholder response is not published.
+
+CLI `inspect-topology` uses semantic compilation only, reports counts/spans and
+backend unavailability, and does not authorize check/export. The battery support
+example uses hypothetical loads/material properties, not DisplayOnly values as
+mechanical evidence. Its menu action opens the DSL view with undoable source
+replacement. The existing worker handles stale completion and cancellation.
+
+Verification: 103 workspace tests pass, fmt and Clippy all-targets -D warnings
+pass, CLI/desktop builds and actual inspect-topology run pass. The native menu
+was exercised using XTest; `docs/screenshots/topology-declaration-native.png`
+shows the inspected 1440x831 DSL/diagnostic state with export disabled. This
+validates declarations and refusal, not FEM, supports or any numerical result.
+
 ## Repository hygiene
 
 `.gitignore` excludes nested Rust target directories, local toolchains/Python

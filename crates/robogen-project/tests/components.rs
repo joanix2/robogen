@@ -12,6 +12,92 @@ part Second { material:M; body=servo(width:25 mm); }";
 
 const BATTERY_SOURCE: &str = include_str!("../../../examples/li_ion_battery/main.rgn");
 
+const TOPOLOGY_SOURCE: &str = include_str!("../../../examples/topology_battery_support/main.rgn");
+
+#[test]
+fn topology_is_semantically_valid_but_never_publishes_placeholder_geometry(
+) -> Result<(), Vec<Diagnostic>> {
+    let model = compile_source(TOPOLOGY_SOURCE)?;
+    let operations = model.topology_operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].constraints.len(), 6);
+    let errors = Project::from_source(TOPOLOGY_SOURCE)
+        .err()
+        .expect("backend must be unavailable");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, "E330");
+    assert_eq!(errors[0].span, operations[0].span);
+    assert!(errors[0].message.contains("Solver unavailable"));
+    Ok(())
+}
+
+#[test]
+fn topology_background_history_cancellation_and_revisions_keep_last_valid_mesh(
+) -> Result<(), Box<dyn std::error::Error>> {
+    fn finish(document: &mut SourceDocument) -> Result<(), &'static str> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !document.poll_compilation() {
+            if std::time::Instant::now() > deadline {
+                return Err("topology compilation timeout");
+            }
+            std::thread::yield_now();
+        }
+        Ok(())
+    }
+    let mut document = SourceDocument::new(SOURCE);
+    let meshes = document
+        .project()
+        .ok_or("missing initial project")?
+        .snapshot()
+        .meshes
+        .clone();
+    document.enable_background_compilation()?;
+    document.replace_source(TOPOLOGY_SOURCE.into());
+    assert!(!document.is_valid());
+    finish(&mut document)?;
+    assert!(!document.is_valid());
+    assert!(document
+        .diagnostics()
+        .iter()
+        .any(|diagnostic| diagnostic.code == "E330"));
+    assert_eq!(
+        document.project().ok_or("lost old mesh")?.snapshot().meshes,
+        meshes
+    );
+    assert!(document.undo());
+    finish(&mut document)?;
+    assert!(document.is_valid());
+    assert_eq!(document.source(), SOURCE);
+    assert!(document.redo());
+    finish(&mut document)?;
+    assert!(!document.is_valid());
+    document.replace_source(SOURCE.into());
+    document.replace_source(TOPOLOGY_SOURCE.into());
+    document.replace_source(SOURCE.into());
+    finish(&mut document)?;
+    assert!(document.is_valid(), "{:?}", document.diagnostics());
+    assert_eq!(
+        document
+            .project()
+            .ok_or("missing current project")?
+            .source(),
+        SOURCE
+    );
+    document.replace_source(TOPOLOGY_SOURCE.into());
+    document.cancel_build();
+    assert!(!document.is_valid());
+    assert!(document.build_progress().is_none());
+    assert!(!document.poll_compilation());
+    assert!(document
+        .diagnostics()
+        .iter()
+        .any(|diagnostic| diagnostic.code == "E321"));
+    assert!(document.undo());
+    finish(&mut document)?;
+    assert!(document.is_valid());
+    Ok(())
+}
+
 fn battery_bounds(source: &str) -> Result<[[f32; 3]; 2], Vec<Diagnostic>> {
     let project = Project::from_source(source)?;
     let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];

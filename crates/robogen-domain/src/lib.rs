@@ -45,6 +45,9 @@ typed_id!(SketchId);
 typed_id!(PartId);
 typed_id!(FeatureId);
 typed_id!(EntityId);
+typed_id!(OptimizationId);
+typed_id!(InterfaceId);
+typed_id!(LoadCaseId);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Length(f64);
@@ -103,6 +106,50 @@ impl Pressure {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Force(f64);
+impl Force {
+    pub fn from_newtons(value: f64) -> Self {
+        Self(value)
+    }
+    pub fn newtons(self) -> f64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Torque(f64);
+impl Torque {
+    pub fn from_newton_metres(value: f64) -> Self {
+        Self(value)
+    }
+    pub fn newton_metres(self) -> f64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Mass(f64);
+impl Mass {
+    pub fn from_kilograms(value: f64) -> Self {
+        Self(value)
+    }
+    pub fn kilograms(self) -> f64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Frequency(f64);
+impl Frequency {
+    pub fn from_hertz(value: f64) -> Self {
+        Self(value)
+    }
+    pub fn hertz(self) -> f64 {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Quantity {
     Scalar(f64),
@@ -110,6 +157,10 @@ pub enum Quantity {
     Angle(Angle),
     Density(Density),
     Pressure(Pressure),
+    Force(Force),
+    Torque(Torque),
+    Mass(Mass),
+    Frequency(Frequency),
 }
 
 impl Quantity {
@@ -120,6 +171,10 @@ impl Quantity {
             Self::Angle(_) => QuantityKind::Angle,
             Self::Density(_) => QuantityKind::Density,
             Self::Pressure(_) => QuantityKind::Pressure,
+            Self::Force(_) => QuantityKind::Force,
+            Self::Torque(_) => QuantityKind::Torque,
+            Self::Mass(_) => QuantityKind::Mass,
+            Self::Frequency(_) => QuantityKind::Frequency,
         }
     }
 }
@@ -131,6 +186,10 @@ pub enum QuantityKind {
     Angle,
     Density,
     Pressure,
+    Force,
+    Torque,
+    Mass,
+    Frequency,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

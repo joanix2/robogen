@@ -1,0 +1,44 @@
+module topology_battery_support;
+
+parameter BATTERY_DIAMETER = 18 mm;
+parameter BATTERY_LENGTH = 68 mm;
+parameter CLEARANCE = 0.4 mm;
+parameter DESIGN_FORCE = 3 N;
+
+material IllustrativePLA {
+    density: 1240 kg/m3;
+    young: 3 GPa;
+    poisson: 0.35;
+    yield_strength: 40 MPa;
+}
+
+component battery_support() -> Solid {
+    envelope = box(size: [30 mm, 24 mm, BATTERY_LENGTH + 6 mm]);
+    mounting_region = box(size: [30 mm, 24 mm, 3 mm]);
+    seat_region = translate(offset: [3 mm, 2 mm, 3 mm],
+        shape: box(size: [24 mm, 20 mm, 3 mm]));
+    clearance = translate(offset: [15 mm, 12 mm, 6 mm],
+        shape: cylinder(radius: BATTERY_DIAMETER / 2 + CLEARANCE,
+            height: BATTERY_LENGTH + 1 mm));
+    return topology(
+        name: "battery_support",
+        domain: envelope,
+        preserve: [interface(name: "mount", shape: mounting_region),
+            interface(name: "seat", shape: seat_region)],
+        void: [clearance],
+        material: IllustrativePLA,
+        load_cases: [load_case(name: "vertical", loads: [
+            force(on: "seat", vector: [0 N, 0 N, -DESIGN_FORCE])],
+            supports: [fixed(on: "mount")])],
+        objective: minimize_mass,
+        constraints: [max_displacement(0.5 mm), max_stress(20 MPa),
+            safety_factor(2), max_mass(40 g), min_frequency(30 Hz),
+            volume_fraction(0.35)],
+        manufacturing: [fdm(build_direction: [0, 0, 1],
+            min_thickness: 1.2 mm, min_hole: 2 mm, max_overhang: 45 deg)]);
+}
+
+part BatterySupport {
+    material: IllustrativePLA;
+    body = translate(offset: [0 mm, 0 mm, 5 mm], shape: battery_support());
+}

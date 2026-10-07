@@ -903,7 +903,23 @@ impl Parser {
 fn is_unit(value: &str) -> bool {
     matches!(
         value,
-        "mm" | "cm" | "m" | "deg" | "rad" | "kg/m3" | "g/cm3" | "Pa" | "kPa" | "MPa" | "GPa"
+        "mm" | "cm"
+            | "m"
+            | "deg"
+            | "rad"
+            | "kg/m3"
+            | "g/cm3"
+            | "Pa"
+            | "kPa"
+            | "MPa"
+            | "GPa"
+            | "N"
+            | "kN"
+            | "Nm"
+            | "Nmm"
+            | "kg"
+            | "g"
+            | "Hz"
     )
 }
 

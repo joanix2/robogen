@@ -3,8 +3,9 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopologyRequest {
-    pub target_name: String,
-    pub volume_fraction: f32,
+    pub specification: robogen_ir::topology::TopologySpec<robogen_ir::SolidGeometry>,
+    pub material: robogen_domain::Material,
+    pub document_revision: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod evaluation;
+pub mod topology;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SemanticParameter {
@@ -45,6 +46,9 @@ pub enum SolidOperation {
     Rotate {
         angles: [Angle; 3],
         shape: Box<SolidGeometry>,
+    },
+    Topology {
+        specification: Box<topology::TopologySpec<SolidGeometry>>,
     },
     Union {
         shapes: Vec<SolidGeometry>,
@@ -105,6 +109,9 @@ pub fn lower(module: &Module) -> LowerOutput {
         parameters: BTreeMap::new(),
         resolving: BTreeSet::new(),
         components: BTreeMap::new(),
+        materials: BTreeMap::new(),
+        feature_key: String::new(),
+        topology_names: BTreeSet::new(),
         resolved: BTreeMap::new(),
         calls: Vec::new(),
         arena: Vec::new(),
@@ -287,6 +294,7 @@ pub fn lower(module: &Module) -> LowerOutput {
         }
     }
 
+    context.materials = model.materials.clone();
     for declaration in &module.declarations {
         if let Declaration::Part(part) = declaration {
             let material = match part.material.as_ref() {
@@ -315,6 +323,8 @@ pub fn lower(module: &Module) -> LowerOutput {
                     continue;
                 }
                 let qualified = format!("{}::{}::{}", module.name, part.name, feature.name);
+                context.feature_key = qualified.clone();
+                context.topology_names.clear();
                 if feature.operation != "extrude" {
                     if let Some(geometry) = context.solid_feature(feature) {
                         features.push(Feature::Solid {
@@ -389,6 +399,9 @@ struct LowerContext<'a> {
     parameters: BTreeMap<String, &'a Expr>,
     resolving: BTreeSet<String>,
     components: BTreeMap<String, &'a robogen_dsl::ComponentDecl>,
+    materials: BTreeMap<String, Material>,
+    feature_key: String,
+    topology_names: BTreeSet<String>,
     resolved: BTreeMap<String, Quantity>,
     calls: Vec<(String, SourceSpan, SourceSpan)>,
     arena: Vec<evaluation::Node>,
@@ -497,6 +510,13 @@ fn parse_quantity(value: f64, unit: Option<&str>) -> Option<Quantity> {
         Some("kPa") => Quantity::Pressure(Pressure::from_pascals(value * 1e3)),
         Some("MPa") => Quantity::Pressure(Pressure::from_pascals(value * 1e6)),
         Some("GPa") => Quantity::Pressure(Pressure::from_pascals(value * 1e9)),
+        Some("N") => Quantity::Force(robogen_domain::Force::from_newtons(value)),
+        Some("kN") => Quantity::Force(robogen_domain::Force::from_newtons(value * 1000.0)),
+        Some("Nm") => Quantity::Torque(robogen_domain::Torque::from_newton_metres(value)),
+        Some("Nmm") => Quantity::Torque(robogen_domain::Torque::from_newton_metres(value / 1000.0)),
+        Some("kg") => Quantity::Mass(robogen_domain::Mass::from_kilograms(value)),
+        Some("g") => Quantity::Mass(robogen_domain::Mass::from_kilograms(value / 1000.0)),
+        Some("Hz") => Quantity::Frequency(robogen_domain::Frequency::from_hertz(value)),
         Some(_) => return None,
     })
 }

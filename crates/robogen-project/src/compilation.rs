@@ -49,13 +49,17 @@ impl CompilationWorker {
                     if cancelled() {
                         continue;
                     }
-                    let result =
-                        Project::from_source_controlled(job.source, &cancelled, &|done, count| {
+                    let result = Project::from_source_controlled(
+                        job.source,
+                        job.revision,
+                        &cancelled,
+                        &|done, count| {
                             if !cancelled() {
                                 worker_total.store(count, Ordering::Release);
                                 worker_completed.store(done, Ordering::Release);
                             }
-                        });
+                        },
+                    );
                     if !cancelled() && result_sender.send((job.revision, result)).is_err() {
                         break;
                     }

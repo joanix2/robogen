@@ -16,6 +16,59 @@ fn cuboid(size: [f64; 3]) -> SolidGeometry {
     })
 }
 
+#[test]
+fn unresolved_topology_is_rejected_under_all_solid_wrappers() {
+    use robogen_domain::{Angle, FeatureId, MaterialId, OptimizationId};
+    use robogen_ir::topology::{Objective, TopologySpec, TOPOLOGY_SCHEMA_VERSION};
+    let topology = geometry(SolidOperation::Topology {
+        specification: Box::new(TopologySpec {
+            schema_version: TOPOLOGY_SCHEMA_VERSION,
+            id: OptimizationId::from_name("test"),
+            name: "test".into(),
+            feature: FeatureId::from_name("test"),
+            span: SourceSpan::default(),
+            domain: cuboid([10.0; 3]),
+            preserve: vec![],
+            voids: vec![],
+            material: MaterialId::from_name("test"),
+            load_cases: vec![],
+            objective: Objective::MinimizeMass,
+            constraints: vec![],
+            manufacturing: vec![],
+        }),
+    });
+    for shape in [
+        topology.clone(),
+        translated(topology.clone(), [1.0; 3]),
+        geometry(SolidOperation::Rotate {
+            angles: [Angle::from_degrees(45.0); 3],
+            shape: Box::new(topology.clone()),
+        }),
+        geometry(SolidOperation::Color {
+            rgb: [10, 20, 30],
+            shape: Box::new(topology.clone()),
+        }),
+        geometry(SolidOperation::Compound {
+            shapes: vec![cuboid([1.0; 3]), topology.clone()],
+        }),
+        geometry(SolidOperation::Union {
+            shapes: vec![topology.clone(), cuboid([1.0; 3])],
+        }),
+        geometry(SolidOperation::Difference {
+            base: Box::new(cuboid([1.0; 3])),
+            tools: vec![topology],
+        }),
+    ] {
+        assert!(
+            matches!(NativeCadKernel.solid(&shape), Err(CadError::InvalidSolid { reason, .. }) if reason.contains("unresolved topology"))
+        );
+        assert_eq!(
+            NativeCadKernel.solid_cancellable(&shape, &|| true),
+            Err(CadError::Cancelled)
+        );
+    }
+}
+
 fn translated(shape: SolidGeometry, offset: [f64; 3]) -> SolidGeometry {
     geometry(SolidOperation::Translate {
         offset: offset.map(Length::from_millimetres),

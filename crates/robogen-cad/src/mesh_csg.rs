@@ -240,6 +240,12 @@ fn validate(geometry: &SolidGeometry) -> Result<(), CadError> {
             }
         };
         match &node.operation {
+            SolidOperation::Topology { .. } => {
+                return Err(invalid(
+                    node.span,
+                    "unresolved topology operation requires an optimization backend",
+                ));
+            }
             SolidOperation::Compound { .. } => {
                 return Err(invalid(node.span, "compound cannot be a Boolean operand"))
             }
@@ -370,6 +376,12 @@ fn evaluate(
         color: None,
     });
     let result = match &node.operation {
+        SolidOperation::Topology { .. } => {
+            return Err(invalid(
+                node.span,
+                "unresolved topology operation requires an optimization backend",
+            ));
+        }
         SolidOperation::Compound { .. } => {
             return Err(invalid(node.span, "compound cannot be a Boolean operand"))
         }

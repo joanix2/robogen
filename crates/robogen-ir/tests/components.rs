@@ -12,6 +12,228 @@ fn compile(body: &str) -> LowerOutput {
     parsed.module.as_ref().map(lower).unwrap_or_default()
 }
 
+const TOPOLOGY_SOURCE: &str = include_str!("../../../examples/topology_battery_support/main.rgn");
+
+fn topology_output(source: &str) -> LowerOutput {
+    let parsed = robogen_dsl::parse(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(parsed.module.is_some());
+    parsed.module.as_ref().map(lower).unwrap_or_default()
+}
+
+#[test]
+fn topology_contract_preserves_types_ids_and_composition() -> Result<(), &'static str> {
+    use robogen_ir::topology::{ConstraintKind, LoadKind, ManufacturingProcess};
+    let original = "translate(offset: [0 mm, 0 mm, 5 mm], shape: battery_support())";
+    for expression in [
+        "battery_support()",
+        original,
+        "rotate(0 deg, 45 deg, 0 deg, battery_support())",
+        "color(10, 20, 30, battery_support())",
+        "compound(box([1 mm, 1 mm, 1 mm]), battery_support())",
+        "union(box([1 mm, 1 mm, 1 mm]), battery_support())",
+        "difference(box([1 mm, 1 mm, 1 mm]), battery_support())",
+        "difference(battery_support(), box([1 mm, 1 mm, 1 mm]))",
+    ] {
+        let source = TOPOLOGY_SOURCE.replace(original, expression);
+        let output = topology_output(&source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let operations = output.model.topology_operations();
+        assert_eq!(operations.len(), 1);
+        let spec = operations[0];
+        assert_eq!(spec.schema_version, 1);
+        let Feature::Solid { id, .. } = &output.model.parts["BatterySupport"].features[0] else {
+            return Err("expected solid");
+        };
+        assert_eq!(spec.feature, *id);
+        assert!(source[spec.span.start..spec.span.end].starts_with("topology("));
+        assert_eq!(spec.material, output.model.materials["IllustrativePLA"].id);
+        let seat = spec.preserve[1]
+            .interface
+            .as_ref()
+            .ok_or("missing seat interface")?;
+        assert_eq!(spec.load_cases[0].loads[0].target, seat.id);
+        let LoadKind::Force(force) = &spec.load_cases[0].loads[0].kind else {
+            return Err("expected force");
+        };
+        assert_eq!(force.map(|value| value.newtons()), [0.0, 0.0, -3.0]);
+        assert!(
+            matches!(spec.constraints[3].kind, ConstraintKind::MaxMass(value) if (value.kilograms() - 0.04).abs() < 1e-10)
+        );
+        assert!(matches!(
+            spec.manufacturing[0].process,
+            ManufacturingProcess::Fdm { .. }
+        ));
+        let repeated = topology_output(&source);
+        assert_eq!(spec, repeated.model.topology_operations()[0]);
+    }
+    let source = format!(
+        "{TOPOLOGY_SOURCE}\npart Other {{ material: IllustrativePLA; body = battery_support(); }}"
+    );
+    let output = topology_output(&source);
+    assert!(output.diagnostics.is_empty());
+    let operations = output.model.topology_operations();
+    assert_eq!(operations.len(), 2);
+    assert_ne!(operations[0].id, operations[1].id);
+    assert_ne!(
+        operations[0].load_cases[0].id,
+        operations[1].load_cases[0].id
+    );
+    assert_ne!(
+        operations[0].preserve[0].interface,
+        operations[1].preserve[0].interface
+    );
+    Ok(())
+}
+
+#[test]
+fn topology_rejects_invalid_or_unsupported_declarations() {
+    for (before, after, code) in [
+        ("DESIGN_FORCE = 3 N", "DESIGN_FORCE = 3 mm", "E104"),
+        ("DESIGN_FORCE = 3 N", "DESIGN_FORCE = 0 N", "E252"),
+        ("on: \"seat\"", "on: \"missing\"", "E253"),
+        ("name: \"seat\"", "name: \"mount\"", "E254"),
+        ("name: \"vertical\"", "name: \"bad name\"", "E251"),
+        ("max_mass(40 g)", "max_mass(40 N)", "E104"),
+        ("max_mass(40 g)", "max_mass(-1 g)", "E252"),
+        ("max_stress(20 MPa)", "max_stress(1 / 0)", "E235"),
+        ("volume_fraction(0.35)", "volume_fraction(1.1)", "E252"),
+        ("safety_factor(2)", "safety_factor(0.9)", "E252"),
+        ("min_frequency(30 Hz)", "unknown_limit(30 Hz)", "E258"),
+        ("min_frequency(30 Hz)", "max_mass(30 g)", "E254"),
+        (
+            "objective: minimize_mass",
+            "objective: unknown_objective",
+            "E256",
+        ),
+        ("objective: minimize_mass,", "", "E236"),
+        ("constraints: [", "unknown_field: [", "E236"),
+        (
+            "build_direction: [0, 0, 1]",
+            "build_direction: [0, 0, 2]",
+            "E252",
+        ),
+        (
+            "build_direction: [0, 0, 1]",
+            "build_direction: [0 mm, 0 mm, 1 mm]",
+            "E104",
+        ),
+        ("min_thickness: 1.2 mm", "min_thickness: -1 mm", "E238"),
+        ("max_overhang: 45 deg", "max_overhang: 91 deg", "E252"),
+        (
+            "manufacturing: [fdm(",
+            "manufacturing: [unknown_process(",
+            "E258",
+        ),
+        ("force(on:", "gravity(on:", "E257"),
+        ("fixed(on:", "unknown_support(on:", "E257"),
+        ("supports: [fixed(on: \"mount\")]", "supports: []", "E250"),
+        (
+            "supports: [fixed(on: \"mount\")]",
+            "supports: [fixed(on: \"mount\"), fixed(on: \"mount\")]",
+            "E254",
+        ),
+        ("young: 3 GPa", "young: 0 GPa", "E255"),
+        ("poisson: 0.35", "poisson: 0.5", "E255"),
+        ("poisson: 0.35", "poisson: -1", "E255"),
+    ] {
+        let output = topology_output(&TOPOLOGY_SOURCE.replace(before, after));
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == code),
+            "{before} -> {after}: {:?}",
+            output.diagnostics
+        );
+        assert!(output
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.span.end > diagnostic.span.start));
+    }
+}
+
+#[test]
+fn topology_supports_torque_cnc_and_explicit_empty_manufacturing() {
+    use robogen_ir::topology::{LoadKind, ManufacturingProcess, Objective, SupportKind};
+    let source = TOPOLOGY_SOURCE
+        .replace("force(on: \"seat\", vector: [0 N, 0 N, -DESIGN_FORCE])", "moment(on: \"seat\", vector: [0 Nm, 200 Nmm, 0 Nm])")
+        .replace("fixed(on: \"mount\")", "pin(on: \"mount\", axis: [1, 0, 0])")
+        .replace("objective: minimize_mass", "objective: maximize_stiffness")
+        .replace("fdm(build_direction: [0, 0, 1],\n            min_thickness: 1.2 mm, min_hole: 2 mm, max_overhang: 45 deg)", "cnc_3axis(tool_direction: [0, 0, -1], tool_diameter: 3 mm)");
+    let output = topology_output(&source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let operations = output.model.topology_operations();
+    assert_eq!(operations[0].objective, Objective::MaximizeStiffness);
+    assert!(
+        matches!(operations[0].load_cases[0].loads[0].kind, LoadKind::Moment(vector) if (vector[1].newton_metres() - 0.2).abs() < 1e-10)
+    );
+    assert!(matches!(
+        operations[0].load_cases[0].supports[0].kind,
+        SupportKind::Pin { .. }
+    ));
+    assert!(matches!(
+        operations[0].manufacturing[0].process,
+        ManufacturingProcess::Cnc3Axis { .. }
+    ));
+    let output = topology_output(
+        &source
+            .replace(
+                "cnc_3axis(tool_direction: [0, 0, -1], tool_diameter: 3 mm)",
+                "",
+            )
+            .replace(
+                "pin(on: \"mount\", axis: [1, 0, 0])",
+                "frictionless(on: \"mount\", normal: [0, 0, 1])",
+            ),
+    );
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(output.model.topology_operations()[0]
+        .manufacturing
+        .is_empty());
+}
+
+#[test]
+fn topology_load_cases_are_distinct_and_lists_are_bounded() {
+    let case = "load_case(name: \"vertical\", loads: [\n            force(on: \"seat\", vector: [0 N, 0 N, -DESIGN_FORCE])],\n            supports: [fixed(on: \"mount\")])";
+    let second = case
+        .replace("\"vertical\"", "\"lateral\"")
+        .replace("[0 N, 0 N, -DESIGN_FORCE]", "[DESIGN_FORCE, 0 N, 0 N]");
+    let output = topology_output(&TOPOLOGY_SOURCE.replace(case, &format!("{case}, {second}")));
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let operations = output.model.topology_operations();
+    assert_eq!(operations[0].load_cases.len(), 2);
+    assert_ne!(
+        operations[0].load_cases[0].id,
+        operations[0].load_cases[1].id
+    );
+    for (replacement, code) in [
+        (format!("{case}, {case}"), "E254"),
+        (
+            std::iter::repeat_n(case, 17).collect::<Vec<_>>().join(", "),
+            "E250",
+        ),
+    ] {
+        let output = topology_output(&TOPOLOGY_SOURCE.replace(case, &replacement));
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == code),
+            "{:?}",
+            output.diagnostics
+        );
+    }
+    let output = topology_output(&TOPOLOGY_SOURCE.replace(
+        "shape: battery_support()",
+        "shape: compound(battery_support(), battery_support())",
+    ));
+    assert!(output
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "E254"));
+}
+
 fn valid(body: &str) -> robogen_ir::SemanticModel {
     let output = compile(body);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
