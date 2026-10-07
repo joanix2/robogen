@@ -36,6 +36,31 @@ Les frontieres `FemDiscretizer`, `SparseLinearSolver`, `TopologyAlgorithm` et `S
 
 Changer de solveur invalide les runs caches, pas le `OptimizationSpec`. Les metadonnees enregistrent versions et hypotheses pour comparer les resultats.
 
+## Tranche autonome autorisee le 2026-10-08
+
+L'utilisateur autorise explicitement le developpement FEM/SIMP sur poutre a
+charges manuelles avant la cloture M1-M6. Cette exception ne valide pas ces
+jalons et ne debloque ni les charges robotiques de M5/M8 ni les backends RL/IA.
+Suivi dans le ticket 15, iteration 3 ; le jalon M7 complet reste ouvert.
+
+Premier adaptateur : faer 0.22.6, factorisation sparse LLT, types tiers prives
+a robogen-topopt. Le port accepte une matrice symetrique par triplets du
+triangle inferieur, additionne les doublons, et verifie le residu relatif.
+Matrices indefinies/singulieres, entrees non finies ou hors budget produisent
+une erreur, jamais une solution publiee sans verification. Le spike numerique
+precede l'assemblage FEM ; une factorisation directe n'est pas interruptible
+en son milieu et doit rester bornee et hors du thread UI.
+
+Spike et tranche scientifique valides : solution connue, singularite, assemblage
+Hex8 a huit points de Gauss, modes rigides/energie/traction/flexion, sensibilites
+filtrees par differences finies et OC a volume constant. La poutre de reference
+conserve la revision du caller et le nom/version de l'adaptateur ; aucune
+publication de document, migration ou cache persistant n'est ajoute.
+Les parametres et resultats mesures sont dans examples/topopt_beam/README.md.
+La reconstruction, les contraintes geometriques/fabrication, les validations
+apres reconstruction et le branchement desktop restent a implementer. Le
+backend de TopologySpec arbitraire reste explicitement indisponible.
+
 ## References
 
 - <https://docs.rs/faer/latest/faer/sparse/>

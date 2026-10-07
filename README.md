@@ -64,8 +64,14 @@ defines a battery support's domain, preserved interfaces, exclusions, loads,
 limits and manufacturing profile through `topology(...)`. Inspect it with
 `cargo run -p robogen-cli -- inspect-topology examples/topology_battery_support/main.rgn`,
 or open **Exemples > Support batterie (contraintes TopOpt)**. Semantic validation
-is implemented; numerical optimization is not. Check/export explicitly fail
+is implemented; numerical optimization of these declarations is not. Check/export explicitly fail
 until a real backend can generate and validate the support.
+
+A separate [M7 cantilever benchmark](examples/topopt_beam/README.md) now performs
+real CPU Hex8 FEM and filtered SIMP with sparse faer factorization:
+`cargo run -p robogen-topopt --example beam`. It reports measured compliance,
+volume, residual and convergence; it does not yet reconstruct a surface or
+enable robot-support optimization in the desktop.
 
 Quality gates are `cargo fmt --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and

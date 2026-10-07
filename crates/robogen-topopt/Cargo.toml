@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+faer = { version = "=0.22.6", default-features = false, features = ["std", "sparse-linalg"] }
 robogen-domain = { path = "../robogen-domain" }
 robogen-ir = { path = "../robogen-ir" }
 serde = { workspace = true }

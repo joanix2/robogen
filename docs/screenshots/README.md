@@ -89,3 +89,15 @@ Declarative topology, 2026-10-07:
 	previous taxonomy explicitly marked stale, export and insertion disabled.
 	No forced resizing and no optimized geometry. Automated tests cover the
 	semantic contract, CAD refusal, CLI inspection, history and worker revisions.
+
+Prerequisite audit, 2026-10-08:
+
+- [Optimisation, 1440x831](m1-optimisation-20261008.png): native tab navigation,
+	actual design preview and explicit unavailable solver; no computed metrics.
+	Disabled indicative settings are not a projection of TopologySpec.
+- [Apprentissage, 1440x831](m1-apprentissage-20261008.png): native tab navigation,
+	static model, unavailable simulation/training and empty metrics/trajectory.
+
+Both actual X11 clients were visually inspected without forced resizing.
+These close two missing desktop capture checks, not all M1 acceptance criteria
+or the compact layout checks for these views. No backend result is claimed.

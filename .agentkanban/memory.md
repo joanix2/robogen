@@ -35,3 +35,11 @@
   CLI et exemple topology_battery_support accessible en UI. 103 tests, fmt,
   Clippy, builds et capture native passes. Aucun FEM/SIMP ni support genere ;
   ticket global ouvert. Revision TopOpt worker-scoped, 0 en synchrone autonome.
+
+- 2026-10-08 : commit ee470fd pour topology declaratif, puis choix explicite
+  utilisateur « Prioriser M7 autonome » : exception a l'ordre M1-M6 limitee a
+  la poutre a charges manuelles. Ticket 15 iteration 3 : faer sparse LLT, Hex8,
+  SIMP/filtre/OC, exemple beam et 11 nouveaux tests ; 114 tests workspace et
+  fmt/Clippy passes. Benchmark 65 iterations, volume .35, compliance/reference
+  .379118 ; aucune surface reconstruite, publication desktop ou support robot.
+  E330 reste actif. M5/M8 et les donnees physiques du bipede restent requis.

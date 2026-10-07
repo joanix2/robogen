@@ -187,3 +187,92 @@ Le solveur reel reste conditionne par M7 et ses prerequisites ; les donnees
 mecaniques du robot ne seront pas inventees pour contourner ce verrou.
 
 ### user
+
+### agent
+
+Commit cree : ee470fd, feat(topology): add validated deferred DSL operation.
+31 fichiers ; aucune publication distante. Worktree propre apres ce commit.
+
+Poursuite du prealable de l'iteration 1 : M0 possede des preuves de validation,
+M1-M6 ne sont pas clos. Les avancees DSL/CAD des tickets supplementaires ne
+valent pas validation retroactive. Manques confirmes dans les implementations :
+SketchEntity ne contient que Rectangle ; PhysicsBackend utilise exclusivement
+UnavailablePhysics ; RobotModel reste un squelette sans projection dynamique.
+M7 depend formellement de M6 et la simulation de M5 n'est pas implementee.
+
+Preuves natives M1 completees pendant cet audit : navigation vers Optimisation
+et Apprentissage par clics XTest, captures reelles 1440x831 inspectees dans
+docs/screenshots/m1-optimisation-20261008.png et
+docs/screenshots/m1-apprentissage-20261008.png. Solveur/entrainement indisponibles,
+metriques et trajectoires vides ; parametres indicatifs desactives. Les controles
+Optimisation ne sont pas une projection du TopologySpec. Pas de revendication
+de comparaison complete a la maquette ni de controle compact de ces deux vues.
+
+Decision de routage necessaire avant changement de perimetre : respecter la
+chaine M1-M6, ou autoriser explicitement une premiere tranche M7 autonome sur
+poutre a charges manuelles. Cette derniere ne requiert techniquement pas une
+simulation robotique, mais derogerait a l'ordre documentaire actuel. Le robot
+reste soumis aux validations M5/M8 et a ses donnees physiques inconnues.
+
+### user
+
+2026-10-08 : Prioriser M7 autonome. Autorisation explicite du changement
+d'ordre : developper et tester le solveur sur une poutre ; le robot et ses
+charges restent pour M5/M8.
+
+### agent
+
+Iteration 3 autorisee, plan/todo/implementation dans ce ticket : premiere
+tranche scientifique M7 a charges manuelles, sans cloturer M1-M6. Exception
+limitee a la poutre ; PPO/LLM et optimisation du robot restent hors perimetre.
+
+Plan : adaptateur sparse faer isole avec solution connue et singularite ;
+elements hexaedriques lineaires a integration Gauss 2x2x2, encastrement et
+force repartie sur la face libre ; validation patch/energie/residu/flexion ;
+SIMP avec filtre de densite et mise a jour OC, sensibilites par differences
+finies et comparaison a densite uniforme de meme volume ; exemple executable
+avec historique reel, progression/annulation et provenance. La publication
+de geometrie topology() arbitraire reste bloquee tant que toutes ses contraintes
+ne sont pas supportees et revalidees. Aucun support robot certifie implicitement.
+
+### user
+
+### agent
+
+## Iteration 3 - Tranche scientifique M7 verifiee
+
+Implementation reelle dans robogen-topopt : port SparseLinearSolver, adaptateur
+faer 0.22.6 LLT prive, Hex8 a huit points de Gauss et encastrement/charge de face,
+SIMP penalise, filtre de densite avec derivees transposees, OC et historique
+d'etats resolus. Entrees Length/Pressure/Force typees, compliance en joules ;
+la requete complete, sa revision et l'identifiant du solveur accompagnent le
+resultat. Limites de ressources et diagnostics, progression et annulation
+cooperative. La factorisation directe reste non interruptible en son milieu.
+
+L'exemple cargo run -p robogen-topopt --example beam calcule effectivement
+120x40x20 mm sur 12x4x2 cellules, E=70 GPa, nu=.3, force totale -1 N en Z,
+volume .35. Arret DesignChange a l'iteration 65 : variation .004620056,
+residu 6.616003e-13, compliance 2.377550262401e-6 J contre 6.271263227758e-6 J
+pour une densite uniforme au meme volume (ratio .379118). Mesure locale debug
+20.932 s hors compilation, pas une garantie de performance. Le run initial
+limite a 60 iterations indiquait correctement IterationLimit. La convergence
+du critere de variation ne prouve pas un optimum global.
+
+Verification : 10 tests unitaires et 1 integration ajoutes (solution sparse,
+singularite, modes rigides, energie multiaxiale, traction analytique, raffinement
+en flexion, sensibilites en differences finies, volume, annulation, reanalyse
+finale et mise a l'echelle de charge). 114 tests workspace passes ; fmt --check,
+Clippy workspace all-targets -D warnings et diagnostics editeur propres.
+Documentation benchmark, architecture, ADR-008, TECHNICAL et suivi alignes.
+
+Checkpoint local de cette tranche validee sous le message
+feat(topopt): add standalone cantilever FEM and SIMP ; aucun push, aucun
+changement de lane ni cloture du ticket 15 ou du jalon M7 entier.
+
+Suite ouverte : reconstruction de surface verifiee, publication desktop hors
+thread UI/revisions, raccordement des capacites TopologySpec et revalidation
+des contraintes. Le chemin topology() reste E330 ; aucun champ de densites
+n'est presente comme piece exportable. M5/M8, interfaces/charges/materiau et
+profils de fabrication restent requis avant les supports robotiques.
+
+### user

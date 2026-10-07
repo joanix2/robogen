@@ -3,6 +3,15 @@
 Statut : architecture cible du MVP, avec bilan d'implementation M0  
 Derniere mise a jour : 2026-09-22
 
+Ajout verifie le 2026-10-08 : tranche M7 autonome autorisee avant cloture M1-M6.
+`robogen-topopt` calcule une poutre a charges manuelles par Hex8/SIMP avec un
+adaptateur sparse faer prive, progression/annulation et provenance de requete.
+Ce benchmark synchrone n'est pas appele par l'UI ; le chemin `topology(...)`
+reste indisponible (E330), sans reconstruction ni publication de support.
+Voir [ADR-008](../adr/ADR-008-topology-optimisation-solver.md) et
+[le benchmark](../../examples/topopt_beam/README.md). Aucun autre jalon n'est
+valide retroactivement par cette tranche.
+
 ## Intention
 
 RoboGen est une application desktop native de conception robotique parametrique. Elle ne juxtapose pas un modeleur, un simulateur et un outil d'apprentissage : ces fonctions projettent toutes un meme modele semantique issu du DSL `.rgn`.

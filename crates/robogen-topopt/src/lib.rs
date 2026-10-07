@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod fem;
+pub mod linear;
+pub mod simp;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopologyRequest {
     pub specification: robogen_ir::topology::TopologySpec<robogen_ir::SolidGeometry>,

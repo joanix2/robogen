@@ -411,6 +411,38 @@ was exercised using XTest; `docs/screenshots/topology-declaration-native.png`
 shows the inspected 1440x831 DSL/diagnostic state with export disabled. This
 validates declarations and refusal, not FEM, supports or any numerical result.
 
+## Standalone M7 Beam (2026-10-08)
+
+The user explicitly authorized a manual-load M7 scientific slice before closing
+M1-M6, tracked in ticket 15 iteration 3 and ADR-008. `robogen-topopt` now owns
+`linear`, `fem` and `simp`: a backend-neutral sparse port with a private faer
+0.22.6 LLT adapter; regular 3D Hex8 Gauss-integrated elasticity; filtered SIMP,
+chain-rule sensitivities, OC volume update and solved-state history. faer uses
+std/sparse-linalg without rayon. No third-party types escape the crate API.
+
+Beam inputs have domain Length/Pressure/Force values; Compliance exposes joules.
+Full request/revision and backend identifier accompany results. DOF indices are
+typed algebraic indices, not persisted geometry identifiers. The bounded API is
+synchronous for CLI/worker use, with cooperative cancellation and per-iteration
+progress; direct factorization cannot be interrupted internally. No UI wiring,
+new project schema, persistent numerical cache or document publication is added.
+`UnavailableTopologyOptimizer`, E330 and the CAD refusal path remain active.
+
+`cargo run -p robogen-topopt --example beam` produces reproducible CSV progress.
+The 120x40x20 mm, 12x4x2 benchmark stops at iteration 65 (design change 0.004620056),
+volume 0.35, residual 6.616003e-13. Compliance decreases from 6.271263227758e-6 J
+to 2.377550262401e-6 J against uniform density at the same volume. Local debug
+run: 20.932 seconds, not a general performance guarantee. The earlier 60-step
+run correctly reported IterationLimit. Full assumptions and numerical tolerances
+are in [the benchmark](examples/topopt_beam/README.md).
+
+Ten unit tests plus one integration test cover sparse failures, element energy,
+analytical traction, rigid modes, bending refinement, finite-difference gradients,
+volume, cancellation, final-state reanalysis and quadratic compliance load scaling.
+All 114 workspace tests pass; fmt and workspace all-targets Clippy -D warnings pass.
+M7 reconstruction/desktop publication and constraint capability checking remain
+open; these results do not certify stress, fabrication or any robot support.
+
 ## Repository hygiene
 
 `.gitignore` excludes nested Rust target directories, local toolchains/Python

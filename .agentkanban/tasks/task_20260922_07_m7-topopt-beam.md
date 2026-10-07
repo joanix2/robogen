@@ -27,3 +27,24 @@ Verification : cas analytiques et invariants FEM, sensibilites comparees aux dif
 Checklist : [M7](todo_20260922_07_m7-topopt-beam.md).
 
 ### user
+
+### agent
+
+2026-10-08 : dans le ticket actif 15, l'utilisateur a explicitement choisi
+« Prioriser M7 autonome », sans attendre M1-M6, pour une poutre a charges
+manuelles uniquement. Aucun jalon precedent ni charge robotique n'est valide
+implicitement. Implementation et preuves detaillees dans l'iteration 3 du
+ticket 15 et examples/topopt_beam/README.md.
+
+Noyau scientifique livre : grille Hex8/elasticite, faer LLT, SIMP/filtre/OC,
+progression/annulation et requete versionnee par revision caller. 11 nouveaux
+tests ; 114 tests workspace, fmt et Clippy -D warnings passes. Poutre 96 cellules,
+volume .35, 65 iterations jusqu'au seuil de variation .005, compliance finale
+2.377550262401e-6 J contre 6.271263227758e-6 J pour la reference uniforme.
+
+M7 reste ouvert : pas de reconstruction de surface, export verifie ou resultat
+desktop ; pas de chemin complet poutre -> mesh -> comparaison UI. Le backend
+TopologySpec reste indisponible et ne transforme pas ces densites en support
+robotique. Les champs physiques affiches ne comprennent pas de Von Mises.
+
+### user
