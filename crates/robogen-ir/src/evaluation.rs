@@ -1,5 +1,5 @@
 use super::{parse_quantity, LowerContext, SolidGeometry, SolidOperation};
-use robogen_domain::{Length, Quantity, QuantityKind, SourceSpan};
+use robogen_domain::{Angle, Length, Quantity, QuantityKind, SourceSpan};
 use robogen_dsl::{ComponentDecl, Expr, ExprKind, FeatureDecl};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -25,8 +25,11 @@ pub(super) struct Node {
 enum Operation {
     Box([Length; 3]),
     Cylinder(Length, Length),
+    Color([u8; 3], usize),
     Translate([Length; 3], usize),
+    Rotate([Angle; 3], usize),
     Union(Vec<usize>),
+    Compound(Vec<usize>),
     Difference(usize, Vec<usize>),
 }
 
@@ -34,40 +37,82 @@ type Scope = BTreeMap<String, Value>;
 
 impl LowerContext<'_> {
     pub(super) fn validate_component(&mut self, component: &ComponentDecl) {
-        if matches!(component.name.as_str(), "box" | "cylinder" | "translate" | "union" | "difference" | "extrude") {
-            self.error("E230", "component name conflicts with a built-in constructor", component.span);
+        if matches!(
+            component.name.as_str(),
+            "box"
+                | "cylinder"
+                | "color"
+                | "translate"
+                | "rotate"
+                | "union"
+                | "compound"
+                | "difference"
+                | "extrude"
+        ) {
+            self.error(
+                "E230",
+                "component name conflicts with a built-in constructor",
+                component.span,
+            );
         }
         let mut names = BTreeSet::new();
         for parameter in &component.parameters {
             if !names.insert(&parameter.name) {
-                self.error("E230", format!("duplicate parameter `{}`", parameter.name), parameter.span);
+                self.error(
+                    "E230",
+                    format!("duplicate parameter `{}`", parameter.name),
+                    parameter.span,
+                );
             }
             if type_kind(&parameter.type_name).is_none() {
-                self.error("E231", format!("unsupported parameter type `{}`", parameter.type_name), parameter.span);
+                self.error(
+                    "E231",
+                    format!("unsupported parameter type `{}`", parameter.type_name),
+                    parameter.span,
+                );
             }
         }
         for binding in &component.bindings {
             if !names.insert(&binding.name) {
-                self.error("E230", format!("duplicate local binding `{}`", binding.name), binding.span);
+                self.error(
+                    "E230",
+                    format!("duplicate local binding `{}`", binding.name),
+                    binding.span,
+                );
             }
         }
     }
 
     pub(super) fn solid_feature(&mut self, feature: &FeatureDecl) -> Option<SolidGeometry> {
         let before = self.diagnostics.len();
-        let value = self.call(&feature.operation, &feature.args, &Scope::new(), feature.span);
-        let result = value.and_then(|value| self.expect_solid(value, feature.span)).and_then(|index| {
-            let count = self.arena[index].expanded;
-            if count > NODE_LIMIT.saturating_sub(self.emitted) {
-                self.error("E239", "total expanded solid node budget exceeded", feature.span);
-                None
-            } else {
-                self.emitted += count;
-                Some(self.materialize(index))
-            }
-        });
+        let value = self.call(
+            &feature.operation,
+            &feature.args,
+            &Scope::new(),
+            feature.span,
+        );
+        let result = value
+            .and_then(|value| self.expect_solid(value, feature.span))
+            .and_then(|index| {
+                let count = self.arena[index].expanded;
+                if count > NODE_LIMIT.saturating_sub(self.emitted) {
+                    self.error(
+                        "E239",
+                        "total expanded solid node budget exceeded",
+                        feature.span,
+                    );
+                    None
+                } else {
+                    self.emitted += count;
+                    Some(self.materialize(index))
+                }
+            });
         if self.diagnostics.len() != before {
-            self.error("E240", format!("failed to expand feature `{}`", feature.name), feature.span);
+            self.error(
+                "E240",
+                format!("failed to expand feature `{}`", feature.name),
+                feature.span,
+            );
         }
         result
     }
@@ -75,7 +120,11 @@ impl LowerContext<'_> {
     pub(super) fn evaluate(&mut self, expression: &Expr, scope: &Scope) -> Option<Value> {
         self.steps += 1;
         if self.steps > STEP_LIMIT || self.depth >= DEPTH_LIMIT {
-            self.error("E239", "evaluation step or depth limit exceeded", expression.span);
+            self.error(
+                "E239",
+                "evaluation step or depth limit exceeded",
+                expression.span,
+            );
             return None;
         }
         self.depth += 1;
@@ -90,12 +139,20 @@ impl LowerContext<'_> {
             ExprKind::Number { value, unit } => {
                 let quantity = parse_quantity(*value, unit.as_deref());
                 match quantity {
-                    Some(quantity) if magnitude(quantity).is_finite() => Some(Value::Quantity(quantity)),
-                    _ => { self.error("E204", "unsupported unit or nonfinite quantity", span); None }
+                    Some(quantity) if magnitude(quantity).is_finite() => {
+                        Some(Value::Quantity(quantity))
+                    }
+                    _ => {
+                        self.error("E204", "unsupported unit or nonfinite quantity", span);
+                        None
+                    }
                 }
             }
             ExprKind::Reference(name) => match scope.get(name).copied() {
-                Some(Value::Unbound) => { self.error("E232", format!("parameter `{name}` is not bound yet"), span); None }
+                Some(Value::Unbound) => {
+                    self.error("E232", format!("parameter `{name}` is not bound yet"), span);
+                    None
+                }
                 Some(value) => Some(value),
                 None => self.resolve_parameter(name, span).map(Value::Quantity),
             },
@@ -103,14 +160,22 @@ impl LowerContext<'_> {
                 let value = self.evaluate(value, scope)?;
                 let quantity = self.expect_quantity(value, span)?;
                 let factor = if *operator == '-' { -1.0 } else { 1.0 };
-                Some(Value::Quantity(with_magnitude(quantity.kind(), magnitude(quantity) * factor)))
+                Some(Value::Quantity(with_magnitude(
+                    quantity.kind(),
+                    magnitude(quantity) * factor,
+                )))
             }
-            ExprKind::Binary { operator, left, right } => {
+            ExprKind::Binary {
+                operator,
+                left,
+                right,
+            } => {
                 let left = self.evaluate(left, scope)?;
                 let right = self.evaluate(right, scope)?;
                 let left = self.expect_quantity(left, span)?;
                 let right = self.expect_quantity(right, span)?;
-                self.arithmetic(*operator, left, right, span).map(Value::Quantity)
+                self.arithmetic(*operator, left, right, span)
+                    .map(Value::Quantity)
             }
             ExprKind::Vector(expressions) => {
                 if expressions.len() != 3 {
@@ -126,38 +191,60 @@ impl LowerContext<'_> {
             }
             ExprKind::Call { name, args } => self.call(name, args, scope, span),
             ExprKind::String(_) | ExprKind::Named { .. } => {
-                self.error("E203", "expected a quantity, vector or solid expression", span);
+                self.error(
+                    "E203",
+                    "expected a quantity, vector or solid expression",
+                    span,
+                );
                 None
             }
         }
     }
 
     pub(super) fn expect_quantity(&mut self, value: Value, span: SourceSpan) -> Option<Quantity> {
-        if let Value::Quantity(value) = value { Some(value) } else {
-            self.error("E203", "expected physical quantity", span); None
+        if let Value::Quantity(value) = value {
+            Some(value)
+        } else {
+            self.error("E203", "expected physical quantity", span);
+            None
         }
     }
 
     fn expect_length(&mut self, value: Value, span: SourceSpan) -> Option<Length> {
         let value = self.expect_quantity(value, span)?;
-        if let Quantity::Length(value) = value { Some(value) } else {
-            self.type_error(QuantityKind::Length, value.kind(), span); None
+        if let Quantity::Length(value) = value {
+            Some(value)
+        } else {
+            self.type_error(QuantityKind::Length, value.kind(), span);
+            None
         }
     }
 
     fn expect_vector(&mut self, value: Value, span: SourceSpan) -> Option<[Length; 3]> {
-        if let Value::Vector(value) = value { Some(value) } else {
-            self.error("E233", "expected a three-length vector", span); None
+        if let Value::Vector(value) = value {
+            Some(value)
+        } else {
+            self.error("E233", "expected a three-length vector", span);
+            None
         }
     }
 
     fn expect_solid(&mut self, value: Value, span: SourceSpan) -> Option<usize> {
-        if let Value::Solid(value) = value { Some(value) } else {
-            self.error("E234", "expected Solid", span); None
+        if let Value::Solid(value) = value {
+            Some(value)
+        } else {
+            self.error("E234", "expected Solid", span);
+            None
         }
     }
 
-    fn arithmetic(&mut self, operator: char, left: Quantity, right: Quantity, span: SourceSpan) -> Option<Quantity> {
+    fn arithmetic(
+        &mut self,
+        operator: char,
+        left: Quantity,
+        right: Quantity,
+        span: SourceSpan,
+    ) -> Option<Quantity> {
         let left_kind = left.kind();
         let right_kind = right.kind();
         let kind = match operator {
@@ -166,24 +253,42 @@ impl LowerContext<'_> {
             '*' | '/' if right_kind == QuantityKind::Scalar => left_kind,
             '/' if left_kind == right_kind => QuantityKind::Scalar,
             _ => {
-                self.error("E104", format!("incompatible units for `{operator}`: {left_kind:?} and {right_kind:?}"), span);
+                self.error(
+                    "E104",
+                    format!(
+                        "incompatible units for `{operator}`: {left_kind:?} and {right_kind:?}"
+                    ),
+                    span,
+                );
                 return None;
             }
         };
         let left = magnitude(left);
         let right = magnitude(right);
         let result = match operator {
-            '+' => left + right, '-' => left - right, '*' => left * right, '/' => left / right,
+            '+' => left + right,
+            '-' => left - right,
+            '*' => left * right,
+            '/' => left / right,
             _ => return None,
         };
         if !result.is_finite() {
-            self.error("E235", "nonfinite arithmetic result (including division by zero)", span);
+            self.error(
+                "E235",
+                "nonfinite arithmetic result (including division by zero)",
+                span,
+            );
             return None;
         }
         Some(with_magnitude(kind, result))
     }
 
-    fn arguments<'expression>(&mut self, args: &'expression [Expr], names: &[&str], span: SourceSpan) -> Option<Vec<Option<&'expression Expr>>> {
+    fn arguments<'expression>(
+        &mut self,
+        args: &'expression [Expr],
+        names: &[&str],
+        span: SourceSpan,
+    ) -> Option<Vec<Option<&'expression Expr>>> {
         let mut values = vec![None; names.len()];
         let mut position = 0;
         let mut named_seen = false;
@@ -205,17 +310,34 @@ impl LowerContext<'_> {
                 (index, argument)
             };
             if values[index].replace(value).is_some() {
-                self.error("E236", format!("duplicate argument `{}`", names[index]), span);
+                self.error(
+                    "E236",
+                    format!("duplicate argument `{}`", names[index]),
+                    span,
+                );
                 return None;
             }
         }
         Some(values)
     }
 
-    fn call(&mut self, name: &str, args: &[Expr], caller: &Scope, span: SourceSpan) -> Option<Value> {
+    fn call(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        caller: &Scope,
+        span: SourceSpan,
+    ) -> Option<Value> {
         if let Some(component) = self.components.get(name).copied() {
             if self.calls.iter().any(|(active, _, _)| active == name) {
-                self.error("E237", format!("recursive component `{name}` (definition {}..{})", component.span.start, component.span.end), span);
+                self.error(
+                    "E237",
+                    format!(
+                        "recursive component `{name}` (definition {}..{})",
+                        component.span.start, component.span.end
+                    ),
+                    span,
+                );
                 return None;
             }
             if self.calls.len() >= 24 {
@@ -230,17 +352,34 @@ impl LowerContext<'_> {
         self.builtin(name, args, caller, span)
     }
 
-    fn component_call(&mut self, component: &ComponentDecl, args: &[Expr], caller: &Scope, span: SourceSpan) -> Option<Value> {
-        let names: Vec<_> = component.parameters.iter().map(|parameter| parameter.name.as_str()).collect();
+    fn component_call(
+        &mut self,
+        component: &ComponentDecl,
+        args: &[Expr],
+        caller: &Scope,
+        span: SourceSpan,
+    ) -> Option<Value> {
+        let names: Vec<_> = component
+            .parameters
+            .iter()
+            .map(|parameter| parameter.name.as_str())
+            .collect();
         let arguments = self.arguments(args, &names, span)?;
-        let mut scope: Scope = names.iter().map(|name| ((*name).to_owned(), Value::Unbound)).collect();
+        let mut scope: Scope = names
+            .iter()
+            .map(|name| ((*name).to_owned(), Value::Unbound))
+            .collect();
         for (parameter, argument) in component.parameters.iter().zip(arguments) {
             let value = if let Some(argument) = argument {
                 self.evaluate(argument, caller)?
             } else if let Some(default) = &parameter.default {
                 self.evaluate(default, &scope)?
             } else {
-                self.error("E236", format!("missing argument `{}`", parameter.name), span);
+                self.error(
+                    "E236",
+                    format!("missing argument `{}`", parameter.name),
+                    span,
+                );
                 return None;
             };
             let quantity = self.expect_quantity(value, span)?;
@@ -256,15 +395,46 @@ impl LowerContext<'_> {
             scope.insert(binding.name.clone(), value);
         }
         let value = self.evaluate(&component.result, &scope)?;
-        self.expect_solid(value, component.result.span).map(Value::Solid)
+        self.expect_solid(value, component.result.span)
+            .map(Value::Solid)
     }
 
-    fn builtin(&mut self, name: &str, args: &[Expr], scope: &Scope, span: SourceSpan) -> Option<Value> {
+    fn builtin(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        scope: &Scope,
+        span: SourceSpan,
+    ) -> Option<Value> {
+        if name == "compound" {
+            if args.is_empty() || args.len() > 128 {
+                self.error("E236", "compound requires 1 to 128 positional solids", span);
+                return None;
+            }
+            let mut shapes = Vec::new();
+            for argument in args {
+                let value = self.evaluate(argument, scope)?;
+                shapes.push(self.expect_solid(value, argument.span)?);
+            }
+            return self
+                .node(Operation::Compound(shapes), span)
+                .map(Value::Solid);
+        }
         if matches!(name, "union" | "difference") {
-            let indices = if args.iter().any(|arg| matches!(arg.kind, ExprKind::Named { .. })) {
-                let names: &[&str] = if name == "union" { &["left", "right"] } else { &["base", "tool"] };
+            let indices = if args
+                .iter()
+                .any(|arg| matches!(arg.kind, ExprKind::Named { .. }))
+            {
+                let names: &[&str] = if name == "union" {
+                    &["left", "right"]
+                } else {
+                    &["base", "tool"]
+                };
                 let values = self.required_arguments(args, names, scope, span)?;
-                values.into_iter().map(|value| self.expect_solid(value, span)).collect::<Option<Vec<_>>>()?
+                values
+                    .into_iter()
+                    .map(|value| self.expect_solid(value, span))
+                    .collect::<Option<Vec<_>>>()?
             } else {
                 if args.len() < 2 {
                     self.error("E236", "union/difference require at least two solids", span);
@@ -277,16 +447,42 @@ impl LowerContext<'_> {
                 }
                 indices
             };
-            let operation = if name == "union" { Operation::Union(indices) } else {
+            let operation = if name == "union" {
+                Operation::Union(indices)
+            } else {
                 Operation::Difference(indices[0], indices[1..].to_vec())
             };
             return self.node(operation, span).map(Value::Solid);
         }
         let operation = match name {
+            "color" => {
+                let values =
+                    self.required_arguments(args, &["red", "green", "blue", "shape"], scope, span)?;
+                let mut rgb = [0; 3];
+                for (channel, value) in rgb.iter_mut().zip(&values[..3]) {
+                    let quantity = self.expect_quantity(*value, span)?;
+                    let Quantity::Scalar(value) = quantity else {
+                        self.type_error(QuantityKind::Scalar, quantity.kind(), span);
+                        return None;
+                    };
+                    if !(0.0..=255.0).contains(&value) || value.fract() != 0.0 {
+                        self.error(
+                            "E241",
+                            "color channels must be integers between 0 and 255",
+                            span,
+                        );
+                        return None;
+                    }
+                    *channel = value as u8;
+                }
+                Operation::Color(rgb, self.expect_solid(values[3], span)?)
+            }
             "box" => {
                 let values = self.required_arguments(args, &["size"], scope, span)?;
                 let size = self.expect_vector(values[0], span)?;
-                for length in size { self.positive(length, span)?; }
+                for length in size {
+                    self.positive(length, span)?;
+                }
                 Operation::Box(size)
             }
             "cylinder" => {
@@ -297,6 +493,20 @@ impl LowerContext<'_> {
                 self.positive(height, span)?;
                 Operation::Cylinder(radius, height)
             }
+            "rotate" => {
+                let values =
+                    self.required_arguments(args, &["x", "y", "z", "shape"], scope, span)?;
+                let mut angles = [Angle::default(); 3];
+                for (angle, value) in angles.iter_mut().zip(&values[..3]) {
+                    let quantity = self.expect_quantity(*value, span)?;
+                    let Quantity::Angle(value) = quantity else {
+                        self.type_error(QuantityKind::Angle, quantity.kind(), span);
+                        return None;
+                    };
+                    *angle = value;
+                }
+                Operation::Rotate(angles, self.expect_solid(values[3], span)?)
+            }
             "translate" => {
                 let values = self.required_arguments(args, &["offset", "shape"], scope, span)?;
                 let offset = self.expect_vector(values[0], span)?;
@@ -304,14 +514,26 @@ impl LowerContext<'_> {
                 Operation::Translate(offset, shape)
             }
             _ => {
-                self.error("E221", format!("unknown constructor `{name}`; only same-file components are available"), span);
+                self.error(
+                    "E221",
+                    format!(
+                        "unknown constructor `{name}`; only same-file components are available"
+                    ),
+                    span,
+                );
                 return None;
             }
         };
         self.node(operation, span).map(Value::Solid)
     }
 
-    fn required_arguments(&mut self, args: &[Expr], names: &[&str], scope: &Scope, span: SourceSpan) -> Option<Vec<Value>> {
+    fn required_arguments(
+        &mut self,
+        args: &[Expr],
+        names: &[&str],
+        scope: &Scope,
+        span: SourceSpan,
+    ) -> Option<Vec<Value>> {
         let arguments = self.arguments(args, names, span)?;
         let mut values = Vec::new();
         for (name, argument) in names.iter().zip(arguments) {
@@ -325,17 +547,28 @@ impl LowerContext<'_> {
     }
 
     fn positive(&mut self, length: Length, span: SourceSpan) -> Option<()> {
-        if length.metres().is_finite() && length.metres() > 0.0 { Some(()) } else {
-            self.error("E238", "solid dimensions must be finite and strictly positive", span); None
+        if length.metres().is_finite() && length.metres() > 0.0 {
+            Some(())
+        } else {
+            self.error(
+                "E238",
+                "solid dimensions must be finite and strictly positive",
+                span,
+            );
+            None
         }
     }
 
     fn node(&mut self, operation: Operation, span: SourceSpan) -> Option<usize> {
         let children: Vec<usize> = match &operation {
             Operation::Box(_) | Operation::Cylinder(..) => Vec::new(),
-            Operation::Translate(_, shape) => vec![*shape],
-            Operation::Union(shapes) => shapes.clone(),
-            Operation::Difference(base, tools) => std::iter::once(*base).chain(tools.iter().copied()).collect(),
+            Operation::Translate(_, shape)
+            | Operation::Rotate(_, shape)
+            | Operation::Color(_, shape) => vec![*shape],
+            Operation::Union(shapes) | Operation::Compound(shapes) => shapes.clone(),
+            Operation::Difference(base, tools) => std::iter::once(*base)
+                .chain(tools.iter().copied())
+                .collect(),
         };
         let mut expanded = 1usize;
         let mut height = 1;
@@ -348,7 +581,12 @@ impl LowerContext<'_> {
             return None;
         }
         let index = self.arena.len();
-        self.arena.push(Node { operation, span, expanded, height });
+        self.arena.push(Node {
+            operation,
+            span,
+            expanded,
+            height,
+        });
         Some(index)
     }
 
@@ -356,20 +594,54 @@ impl LowerContext<'_> {
         let node = &self.arena[index];
         let operation = match &node.operation {
             Operation::Box(size) => SolidOperation::Box { size: *size },
-            Operation::Cylinder(radius, height) => SolidOperation::Cylinder { radius: *radius, height: *height },
-            Operation::Translate(offset, shape) => SolidOperation::Translate { offset: *offset, shape: Box::new(self.materialize(*shape)) },
-            Operation::Union(shapes) => SolidOperation::Union { shapes: shapes.iter().map(|index| self.materialize(*index)).collect() },
-            Operation::Difference(base, tools) => SolidOperation::Difference { base: Box::new(self.materialize(*base)), tools: tools.iter().map(|index| self.materialize(*index)).collect() },
+            Operation::Cylinder(radius, height) => SolidOperation::Cylinder {
+                radius: *radius,
+                height: *height,
+            },
+            Operation::Color(rgb, shape) => SolidOperation::Color {
+                rgb: *rgb,
+                shape: Box::new(self.materialize(*shape)),
+            },
+            Operation::Translate(offset, shape) => SolidOperation::Translate {
+                offset: *offset,
+                shape: Box::new(self.materialize(*shape)),
+            },
+            Operation::Rotate(angles, shape) => SolidOperation::Rotate {
+                angles: *angles,
+                shape: Box::new(self.materialize(*shape)),
+            },
+            Operation::Union(shapes) => SolidOperation::Union {
+                shapes: shapes
+                    .iter()
+                    .map(|index| self.materialize(*index))
+                    .collect(),
+            },
+            Operation::Compound(shapes) => SolidOperation::Compound {
+                shapes: shapes
+                    .iter()
+                    .map(|index| self.materialize(*index))
+                    .collect(),
+            },
+            Operation::Difference(base, tools) => SolidOperation::Difference {
+                base: Box::new(self.materialize(*base)),
+                tools: tools.iter().map(|index| self.materialize(*index)).collect(),
+            },
         };
-        SolidGeometry { operation, span: node.span }
+        SolidGeometry {
+            operation,
+            span: node.span,
+        }
     }
 }
 
 fn type_kind(name: &str) -> Option<QuantityKind> {
     Some(match name {
-        "Length" => QuantityKind::Length, "Scalar" => QuantityKind::Scalar,
-        "Angle" => QuantityKind::Angle, "Density" => QuantityKind::Density,
-        "Pressure" => QuantityKind::Pressure, _ => return None,
+        "Length" => QuantityKind::Length,
+        "Scalar" => QuantityKind::Scalar,
+        "Angle" => QuantityKind::Angle,
+        "Density" => QuantityKind::Density,
+        "Pressure" => QuantityKind::Pressure,
+        _ => return None,
     })
 }
 

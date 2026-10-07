@@ -14,3 +14,18 @@
 - Agents VS Code dans `.github/agents/` : RoboGen orchestre onze sous-agents ; Architect et QA sont aussi selectionnables directement. Explore est en lecture seule. Protocole, noms exacts et perimetres dans AGENTS.md ; seul le parent met a jour les fichiers Kanban partages pour le travail delegue. Les profils ne changent pas les regles d'autorisation ni les lanes.
 - M0 valide localement le 2026-09-22 : trois gates Rust passes, 21 tests, build desktop et capture X11/RTX3060 `docs/screenshots/m0-native.png`. CI existante complete mais non executee sur GitHub. Toutes les crates heritent des lints. Architecture/ADR distinguent desormais cible et implementation. L'utilisateur autorise la suite des tickets dans l'ordre, sans changer leurs lanes.
 - Git initialise dans RoboGen apres M0 et pendant la preparation M1, independamment du depot parent Documents. Premier commit = instantane initial, non cloture M1. L'utilisateur autorise un commit local apres chaque ticket valide, avant le suivant ; seul le parent commit, aucun push. PDFs scientifiques locaux ignores ; catalogue/notices suivis.
+
+- 2026-10-07 : demande autorisee de creation des tickets et debut du mini bipede.
+  Ticket actif 14 (biped-layout) : 17 composants disposes, rotate type/ADR-011,
+  exemple mini_biped et menu, 94 tests workspace passes ; correction cadrage
+  verifiee ensuite par test UI cible/fmt/Clippy/build et capture native.
+  Ticket 15 (biped-constraints-topopt) specifie supports generes depuis contraintes,
+  interfaces et domaines ; reutilise M7/M8 et ticket 13. Aucun solveur TopOpt,
+  support optimise, marche ou propriete mecanique validee ajoute par le ticket 14.
+  Les changements servo 12 preexistants restent non committes et ouverts ; pas
+  de commit global attribuant leur completion au ticket bipede.
+
+- 2026-10-07 : l'utilisateur demande explicitement « commit tout » apres la
+  livraison du bipede. Autorisation d'un checkpoint local global des travaux
+  courants (y compris servo/bibliotheque preexistants), sans cloturer les
+  acceptations encore ouvertes, sans changement de lane et sans push.

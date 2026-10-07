@@ -1,0 +1,60 @@
+module raspberry_pi_camera_demo;
+
+parameter MOUNT_DIAMETER = 2 mm;
+parameter PCB_THICKNESS = 0.95 mm;
+
+material DisplayOnly {
+    density: 1200 kg/m3;
+    young: 3 GPa;
+    poisson: 0.35;
+    yield_strength: 40 MPa;
+}
+
+component camera_pcb(hole_diameter: Length = MOUNT_DIAMETER) -> Solid {
+    board = box(size: [23.9 mm, 25 mm, PCB_THICKNESS]);
+    hole = cylinder(radius: hole_diameter / 2, height: PCB_THICKNESS + 2 mm);
+    return color(red: 35, green: 125, blue: 72, shape: difference(board,
+        translate(offset: [9.35 mm, 2 mm, -1 mm], shape: hole),
+        translate(offset: [21.85 mm, 2 mm, -1 mm], shape: hole),
+        translate(offset: [9.35 mm, 23 mm, -1 mm], shape: hole),
+        translate(offset: [21.85 mm, 23 mm, -1 mm], shape: hole)));
+}
+
+component camera_optics() -> Solid {
+    base = translate(offset: [5.1 mm, 8.5 mm, PCB_THICKNESS],
+        shape: box(size: [8 mm, 8 mm, 3 mm]));
+    barrel = translate(offset: [9.1 mm, 12.5 mm, PCB_THICKNESS + 3 mm],
+        shape: cylinder(radius: 3.7 mm, height: 2.1 mm));
+    lens = translate(offset: [9.1 mm, 12.5 mm, PCB_THICKNESS + 5.1 mm],
+        shape: cylinder(radius: 2.8 mm, height: 0.1 mm));
+    return union(color(red: 34, green: 37, blue: 42, shape: union(base, barrel)),
+        color(red: 54, green: 115, blue: 153, shape: lens));
+}
+
+component camera_sensor_tail() -> Solid {
+    return color(red: 184, green: 112, blue: 48,
+        shape: translate(offset: [13.1 mm, 8.5 mm, PCB_THICKNESS],
+            shape: box(size: [9.8 mm, 8 mm, 0.8 mm])));
+}
+
+component camera_connector() -> Solid {
+    return color(red: 205, green: 209, blue: 212,
+        shape: translate(offset: [0 mm, 2.8 mm, -2.8 mm],
+            shape: box(size: [5.6 mm, 19.4 mm, 2.8 mm])));
+}
+
+component camera_ribbon() -> Solid {
+    return color(red: 225, green: 229, blue: 232,
+        shape: translate(offset: [-5 mm, 4.4 mm, -1.42 mm],
+            shape: box(size: [5 mm, 16.2 mm, 0.3 mm])));
+}
+
+component raspberry_pi_camera(hole_diameter: Length = MOUNT_DIAMETER) -> Solid {
+    return union(camera_pcb(hole_diameter: hole_diameter), camera_optics(),
+        camera_sensor_tail(), camera_connector(), camera_ribbon());
+}
+
+part Camera {
+    material: DisplayOnly;
+    body = raspberry_pi_camera();
+}

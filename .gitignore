@@ -1,18 +1,46 @@
-/target/
+# Rust build output and local toolchains. Keep Cargo.lock and Cargo config tracked.
+target/
 /.cargo-home/
 /.rustup-local/
-/.venv/
-/graphify-out/
-/.agentkanban/logs/
-/docs/RoboGen_articles_scientifiques/**/*.pdf
-*.rgnproj.user
-generated/
 
+# Local Python tooling and caches.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Rebuildable project output and local user state.
+generated/
+/exports/
+*.rgnproj.user
+/robogen-export.stl
+/graphify-out/
+
+# Logs and profiling output.
+/.agentkanban/logs/
+*.log
+*.log.*
+*.profraw
+*.profdata
+/coverage/
+
+# Downloaded research papers; keep their catalogs and documentation tracked.
+/docs/RoboGen_articles_scientifiques/**/*.pdf
+
+# Local environment files; retain shareable templates.
 .env
 .env.*
 !.env.example
 !.env.template
-*.log
-/.DS_Store
+
+# Editor temporary files and OS metadata. Keep shared .vscode settings tracked.
+*~
+*.swp
+*.swo
+*.tmp
+.DS_Store
 Thumbs.db
-/robogen-export.stl
+
+# Sources, examples, tests, task records, Cargo.lock and documentation images
+# are intentionally versioned. Do not ignore all STL/PDF/PNG files: fixtures
+# and reference assets outside generated/download directories may be sources.

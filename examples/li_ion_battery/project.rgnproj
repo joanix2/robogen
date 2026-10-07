@@ -1,0 +1,3 @@
+schema_version = 1
+name = "OEM Li-ion 1S battery pack (nominal 18 x 68 mm)"
+source = "main.rgn"

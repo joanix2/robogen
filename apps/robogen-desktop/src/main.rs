@@ -2,7 +2,6 @@ use eframe::egui;
 use robogen_ui::{RoboGenUi, UiAction};
 use std::path::Path;
 
-#[derive(Default)]
 struct DesktopApp {
     ui: RoboGenUi,
 }
@@ -39,6 +38,14 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "RoboGen",
         options,
-        Box::new(|_creation_context| Ok(Box::<DesktopApp>::default())),
+        Box::new(|_creation_context| {
+            let mut ui = RoboGenUi::default();
+            ui.enable_background_compilation()?;
+            if let Some(path) = std::env::args_os().nth(1) {
+                let source = std::fs::read_to_string(path)?;
+                ui.set_dsl_source(source);
+            }
+            Ok(Box::new(DesktopApp { ui }))
+        }),
     )
 }

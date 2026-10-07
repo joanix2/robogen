@@ -1,0 +1,49 @@
+module servo_demo;
+
+parameter JEU = 0 mm;
+
+material ServoPlastic {
+    density: 1240 kg/m3;
+    young: 3.5 GPa;
+    poisson: 0.36;
+    yield_strength: 50 MPa;
+}
+
+component servo_main(jeu: Length = 0 mm) -> Solid {
+    body = translate(offset: [-jeu, -jeu, -jeu],
+        shape: box(size: [11.8 mm + jeu * 2, 22.5 mm + jeu * 2, 22.7 mm + jeu * 2]));
+    tabs = translate(offset: [0 mm, -4.7 mm, 15.9 mm],
+        shape: box(size: [11.8 mm, 31.9 mm, 2.5 mm]));
+    bridge = translate(offset: [3.4 mm, 10.8 mm, 22.7 mm],
+        shape: box(size: [5 mm, 3.5 mm, 4 mm]));
+    gear = translate(offset: [5.9 mm, 5.9 mm, 22.7 mm],
+        shape: cylinder(radius: 5.9 mm, height: 4 mm));
+    boss = translate(offset: [5.9 mm, 14.3 mm, 22.7 mm],
+        shape: cylinder(radius: 2.5 mm, height: 4 mm));
+    shaft = translate(offset: [5.9 mm, 5.9 mm, 26.7 mm],
+        shape: cylinder(radius: 2.3 mm, height: 3.2 mm));
+    connector = translate(offset: [4.1 mm, -3 mm, 4.5 mm],
+        shape: box(size: [3.6 mm, 3 mm, 12 mm]));
+    housing = color(red: 48, green: 108, blue: 224, shape: union(body, tabs, bridge, gear, boss));
+    metal = color(red: 210, green: 215, blue: 222, shape: shaft);
+    plug = color(red: 25, green: 28, blue: 32, shape: connector);
+    return union(housing, metal, plug);
+}
+
+component servo(jeu: Length = JEU) -> Solid {
+    front_hole = translate(offset: [5.9 mm, -2.4 mm, 15.5 mm],
+        shape: cylinder(radius: 1 mm, height: 3 mm));
+    rear_hole = translate(offset: [5.9 mm, 24.9 mm, 15.5 mm],
+        shape: cylinder(radius: 1 mm, height: 3 mm));
+    front_slot = translate(offset: [5.25 mm, -4.7 mm, 15.5 mm],
+        shape: box(size: [1.3 mm, 2.3 mm, 3 mm]));
+    rear_slot = translate(offset: [5.25 mm, 24.9 mm, 15.5 mm],
+        shape: box(size: [1.3 mm, 2.3 mm, 3 mm]));
+    return color(red: 48, green: 108, blue: 224,
+        shape: difference(servo_main(jeu: jeu), front_hole, rear_hole, front_slot, rear_slot));
+}
+
+part Servo {
+    material: ServoPlastic;
+    body = servo();
+}

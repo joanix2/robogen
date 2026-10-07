@@ -30,6 +30,18 @@ Ce chemin ne fournit ni `RenderScene`, ni cible/texture CAD wgpu dediee, ni buff
 
 ## Consequences
 
+### Correctif d'occultation de l'apercu CPU (2026-10-07)
+
+Le tri des triangles par profondeur moyenne ne garantit pas la visibilite.
+L'apercu utilise maintenant un RasterImage neutre (dimensions et pixels RGBA)
+calcule dans robogen-render avec tampon de profondeur par pixel, interpolation
+de profondeur inverse et decoupe au plan proche. La resolution est bornee a
+2048 pixels par axe. robogen-ui compose une texture egui et conserve un cache
+par vue, invalide par changement de mesh, camera ou taille. Aucun type egui
+ne traverse la frontiere render. L'ancien contrat de primitives reste disponible
+pour les consommateurs existants, mais n'est plus le rendu de surface de l'UI.
+Ce correctif ne pretend pas implementer le pipeline CAD wgpu ou le picking M3.
+
 - iteration rapide et pile graphique unique wgpu ;
 - meme base pour Linux, Windows et macOS ;
 - les formulaires complexes exigent une discipline stricte pour ne pas placer les regles metier dans les widgets ;

@@ -1,8 +1,8 @@
 //! Resolution and type/unit checking from syntax into the shared semantic model.
 
 use robogen_domain::{
-    Density, Diagnostic, FeatureId, Length, Material, MaterialId, ParameterId, PartId, Point2,
-    Pressure, Quantity, QuantityKind, SketchId, SourceSpan,
+    Angle, Density, Diagnostic, FeatureId, Length, Material, MaterialId, ParameterId, PartId,
+    Point2, Pressure, Quantity, QuantityKind, SketchId, SourceSpan,
 };
 use robogen_dsl::{Declaration, Expr, ExprKind, Module};
 use robogen_sketch::{ConstraintKind, Plane, Rectangle, Sketch, SketchConstraint, SketchEntity};
@@ -27,11 +27,35 @@ pub struct SolidGeometry {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SolidOperation {
-    Box { size: [Length; 3] },
-    Cylinder { radius: Length, height: Length },
-    Translate { offset: [Length; 3], shape: Box<SolidGeometry> },
-    Union { shapes: Vec<SolidGeometry> },
-    Difference { base: Box<SolidGeometry>, tools: Vec<SolidGeometry> },
+    Box {
+        size: [Length; 3],
+    },
+    Cylinder {
+        radius: Length,
+        height: Length,
+    },
+    Color {
+        rgb: [u8; 3],
+        shape: Box<SolidGeometry>,
+    },
+    Translate {
+        offset: [Length; 3],
+        shape: Box<SolidGeometry>,
+    },
+    Rotate {
+        angles: [Angle; 3],
+        shape: Box<SolidGeometry>,
+    },
+    Union {
+        shapes: Vec<SolidGeometry>,
+    },
+    Compound {
+        shapes: Vec<SolidGeometry>,
+    },
+    Difference {
+        base: Box<SolidGeometry>,
+        tools: Vec<SolidGeometry>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -105,10 +129,10 @@ pub fn lower(module: &Module) -> LowerOutput {
                 .parameters
                 .insert(parameter.name.clone(), &parameter.value);
         }
-            if let Declaration::Component(component) = declaration {
-                context.validate_component(component);
-                context.components.insert(component.name.clone(), component);
-            }
+        if let Declaration::Component(component) = declaration {
+            context.validate_component(component);
+            context.components.insert(component.name.clone(), component);
+        }
     }
 
     let mut model = SemanticModel {
@@ -283,7 +307,11 @@ pub fn lower(module: &Module) -> LowerOutput {
             let mut feature_names = BTreeSet::new();
             for feature in &part.features {
                 if !feature_names.insert(&feature.name) {
-                    context.error("E230", format!("duplicate feature `{}`", feature.name), feature.span);
+                    context.error(
+                        "E230",
+                        format!("duplicate feature `{}`", feature.name),
+                        feature.span,
+                    );
                     continue;
                 }
                 let qualified = format!("{}::{}::{}", module.name, part.name, feature.name);
@@ -291,13 +319,19 @@ pub fn lower(module: &Module) -> LowerOutput {
                     if let Some(geometry) = context.solid_feature(feature) {
                         features.push(Feature::Solid {
                             id: FeatureId::from_name(&qualified),
-                            name: feature.name.clone(), geometry, span: feature.span,
+                            name: feature.name.clone(),
+                            geometry,
+                            span: feature.span,
                         });
                     }
                     continue;
                 }
                 if feature.args.len() != 2 {
-                    context.error("E222", "extrude expects exactly two positional arguments", feature.span);
+                    context.error(
+                        "E222",
+                        "extrude expects exactly two positional arguments",
+                        feature.span,
+                    );
                     continue;
                 }
                 let Some(Expr {
@@ -365,7 +399,9 @@ struct LowerContext<'a> {
 
 impl LowerContext<'_> {
     fn resolve_parameter(&mut self, name: &str, span: SourceSpan) -> Option<Quantity> {
-        if let Some(value) = self.resolved.get(name) { return Some(*value); }
+        if let Some(value) = self.resolved.get(name) {
+            return Some(*value);
+        }
         if self.resolving.len() >= 32 {
             self.error("E239", "parameter dependency depth limit exceeded", span);
             return None;
@@ -383,7 +419,9 @@ impl LowerContext<'_> {
             }
         };
         self.resolving.remove(name);
-        if let Some(value) = result { self.resolved.insert(name.to_owned(), value); }
+        if let Some(value) = result {
+            self.resolved.insert(name.to_owned(), value);
+        }
         result
     }
 
@@ -435,7 +473,10 @@ impl LowerContext<'_> {
     fn error(&mut self, code: &str, message: impl Into<String>, span: SourceSpan) {
         let mut message = message.into();
         for (name, call, definition) in &self.calls {
-            message.push_str(&format!("; component `{name}` called at {}..{}, defined at {}..{}", call.start, call.end, definition.start, definition.end));
+            message.push_str(&format!(
+                "; component `{name}` called at {}..{}, defined at {}..{}",
+                call.start, call.end, definition.start, definition.end
+            ));
         }
         self.diagnostics
             .push(Diagnostic::error(code, message, span));

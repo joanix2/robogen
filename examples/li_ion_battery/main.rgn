@@ -1,0 +1,58 @@
+module li_ion_battery_demo;
+
+parameter PACK_DIAMETER = 18 mm;
+parameter PACK_LENGTH = 68 mm;
+parameter WIRE_LENGTH = 20 mm;
+parameter WIRE_DIAMETER = 1.4 mm;
+parameter WIRE_SPACING = 3 mm;
+parameter CONNECTOR_WIDTH = 6 mm;
+parameter CONNECTOR_DEPTH = 4 mm;
+parameter CONNECTOR_LENGTH = 10 mm;
+
+material DisplayOnly {
+    density: 1200 kg/m3;
+    young: 3 GPa;
+    poisson: 0.35;
+    yield_strength: 40 MPa;
+}
+
+component battery_body(diameter: Length = PACK_DIAMETER, length: Length = PACK_LENGTH) -> Solid {
+    sleeve = translate(offset: [0 mm, 0 mm, 0.2 mm],
+        shape: cylinder(radius: diameter / 2, height: length - 0.4 mm));
+    cap = cylinder(radius: diameter / 2, height: 0.2 mm);
+    return compound(color(red: 245, green: 207, blue: 35, shape: sleeve),
+        color(red: 212, green: 171, blue: 25, shape: cap),
+        color(red: 212, green: 171, blue: 25,
+            shape: translate(offset: [0 mm, 0 mm, length - 0.2 mm], shape: cap)));
+}
+
+component battery_connector(width: Length = CONNECTOR_WIDTH,
+    depth: Length = CONNECTOR_DEPTH, length: Length = CONNECTOR_LENGTH) -> Solid {
+    housing = translate(offset: [-width / 2, -depth / 2, 0 mm],
+        shape: box(size: [width, depth, length]));
+    socket = box(size: [width / 5, depth / 3, length / 2]);
+    return color(red: 190, green: 35, blue: 40, shape: difference(housing,
+        translate(offset: [-width / 4 - width / 10, -depth / 6, length * 0.6], shape: socket),
+        translate(offset: [width / 4 - width / 10, -depth / 6, length * 0.6], shape: socket)));
+}
+
+component li_ion_battery(diameter: Length = PACK_DIAMETER,
+    length: Length = PACK_LENGTH, wire_length: Length = WIRE_LENGTH,
+    wire_diameter: Length = WIRE_DIAMETER, wire_spacing: Length = WIRE_SPACING,
+    connector_width: Length = CONNECTOR_WIDTH, connector_depth: Length = CONNECTOR_DEPTH,
+    connector_length: Length = CONNECTOR_LENGTH) -> Solid {
+    wire = cylinder(radius: wire_diameter / 2, height: wire_length);
+    return compound(battery_body(diameter: diameter, length: length),
+        color(red: 203, green: 38, blue: 40,
+            shape: translate(offset: [-wire_spacing / 2, 0 mm, length], shape: wire)),
+        color(red: 28, green: 29, blue: 32,
+            shape: translate(offset: [wire_spacing / 2, 0 mm, length], shape: wire)),
+        translate(offset: [0 mm, 0 mm, length + wire_length],
+            shape: battery_connector(width: connector_width,
+                depth: connector_depth, length: connector_length)));
+}
+
+part Battery {
+    material: DisplayOnly;
+    body = li_ion_battery();
+}

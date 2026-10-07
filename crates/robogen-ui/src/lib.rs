@@ -9,8 +9,8 @@ use egui::{
     Sense, Shape, SidePanel, Stroke, TextEdit, TextStyle, TopBottomPanel, Ui, Vec2,
 };
 use robogen_agent_api::{AiAssistantProvider, AssistantRequest, DisabledAiAssistant};
-use robogen_domain::{ComponentTaxonomy, EntityId};
-use robogen_project::SourceDocument;
+use robogen_domain::{EntityId, SourceSpan};
+use robogen_project::{FunctionDefinition, LibraryGenerator, SourceDocument, TaxonomyInstance};
 use robogen_render::{Camera, PreviewMesh, Rgba8, RobotPreviewRenderer, ViewportSize};
 
 const BACKGROUND: Color32 = Color32::from_rgb(10, 17, 25);
@@ -55,7 +55,12 @@ pub struct RoboGenUi {
     optimization_tab: usize,
     selected_terrain: usize,
     taxonomy_filter: String,
-    taxonomy: ComponentTaxonomy,
+    library_filter: String,
+    taxonomy: Vec<TaxonomyInstance>,
+    functions: Vec<FunctionDefinition>,
+    taxonomy_fraction: f32,
+    source_selection: Option<SourceSpan>,
+    selected_generator: Option<LibraryGenerator>,
     selected_component: Option<EntityId>,
     document: SourceDocument,
     dsl_source: String,
@@ -87,8 +92,13 @@ impl Default for RoboGenUi {
             optimization_tab: 0,
             selected_terrain: 1,
             taxonomy_filter: String::new(),
-            taxonomy: ComponentTaxonomy::default(),
-            selected_component: Some(EntityId::from_name("robogen::taxonomy::builtin::limb::leg")),
+            library_filter: String::new(),
+            taxonomy: Vec::new(),
+            functions: Vec::new(),
+            taxonomy_fraction: 0.52,
+            source_selection: None,
+            selected_generator: None,
+            selected_component: None,
             document: SourceDocument::new(DEFAULT_DSL),
             dsl_source: DEFAULT_DSL.to_owned(),
             assistant_message: match DisabledAiAssistant.respond(&AssistantRequest {
@@ -114,6 +124,75 @@ impl Default for RoboGenUi {
 }
 
 impl RoboGenUi {
+    pub fn enable_background_compilation(&mut self) -> std::io::Result<()> {
+        self.document.enable_background_compilation()
+    }
+
+    pub fn load_servo_example(&mut self) {
+        self.set_dsl_source(include_str!("../../../examples/servo/main.rgn"));
+        self.camera = Camera {
+            target: robogen_render::Vec3::new(0.0, 1.3, 0.0),
+            distance: 6.5,
+            ..Camera::default()
+        };
+        self.design_tab = DesignTab::Viewport;
+        self.mode = WorkspaceMode::Design;
+    }
+
+    pub fn load_compute_board_example(&mut self) {
+        self.set_dsl_source(include_str!("../../../examples/compute_board/main.rgn"));
+        self.camera = Camera {
+            target: robogen_render::Vec3::new(0.0, 0.4, 0.0),
+            yaw: 0.7,
+            pitch: 0.75,
+            distance: 4.8,
+            ..Camera::default()
+        };
+        self.design_tab = DesignTab::Viewport;
+        self.mode = WorkspaceMode::Design;
+    }
+
+    pub fn load_camera_example(&mut self) {
+        self.set_dsl_source(include_str!(
+            "../../../examples/raspberry_pi_camera/main.rgn"
+        ));
+        self.camera = Camera {
+            target: robogen_render::Vec3::new(0.0, 0.4, 0.0),
+            yaw: 0.5,
+            pitch: 0.85,
+            distance: 4.8,
+            ..Camera::default()
+        };
+        self.design_tab = DesignTab::Viewport;
+        self.mode = WorkspaceMode::Design;
+    }
+
+    pub fn load_battery_example(&mut self) {
+        self.set_dsl_source(include_str!("../../../examples/li_ion_battery/main.rgn"));
+        self.camera = Camera {
+            target: robogen_render::Vec3::new(0.0, 0.4, 0.0),
+            yaw: 0.5,
+            pitch: 0.55,
+            distance: 4.8,
+            ..Camera::default()
+        };
+        self.design_tab = DesignTab::Viewport;
+        self.mode = WorkspaceMode::Design;
+    }
+
+    pub fn load_biped_example(&mut self) {
+        self.set_dsl_source(include_str!("../../../examples/mini_biped/main.rgn"));
+        self.camera = Camera {
+            target: robogen_render::Vec3::new(0.0, 1.5, 0.0),
+            yaw: 0.25,
+            pitch: 0.15,
+            distance: 4.8,
+            ..Camera::default()
+        };
+        self.design_tab = DesignTab::Viewport;
+        self.mode = WorkspaceMode::Design;
+    }
+
     pub fn mode(&self) -> WorkspaceMode {
         self.mode
     }
@@ -169,16 +248,35 @@ impl RoboGenUi {
         true
     }
 
-    pub fn set_taxonomy(&mut self, taxonomy: ComponentTaxonomy) {
-        self.taxonomy = taxonomy;
-        if !self
-            .taxonomy
-            .categories()
-            .iter()
-            .flat_map(|category| &category.entries)
-            .any(|entry| Some(entry.id) == self.selected_component)
-        {
-            self.selected_component = None;
+    pub fn instantiate_generator(&mut self, generator: LibraryGenerator) -> bool {
+        match self.document.instantiate_generator(generator) {
+            Ok(_) => {
+                self.selected_generator = Some(generator);
+                self.refresh_document();
+                self.mode = WorkspaceMode::Design;
+                self.design_tab = DesignTab::Viewport;
+                self.camera = Camera {
+                    target: robogen_render::Vec3::new(0.0, 0.4, 0.0),
+                    yaw: 0.5,
+                    pitch: 0.8,
+                    distance: 4.8,
+                    ..Camera::default()
+                };
+                true
+            }
+            Err(diagnostics) => {
+                self.status_message = diagnostics
+                    .first()
+                    .map(|diagnostic| diagnostic.message.clone());
+                false
+            }
+        }
+    }
+
+    fn open_source(&mut self, span: SourceSpan) {
+        if self.document.is_valid() {
+            self.source_selection = Some(span);
+            self.design_tab = DesignTab::Dsl;
         }
     }
 
@@ -187,6 +285,7 @@ impl RoboGenUi {
     }
 
     fn refresh_document(&mut self) {
+        self.source_selection = None;
         self.dsl_source = self.document.source().to_owned();
         self.pending_action = None;
         self.status_message = None;
@@ -203,13 +302,32 @@ impl RoboGenUi {
 
     /// Draw one complete UI frame.
     pub fn show(&mut self, context: &Context) {
+        if self.document.poll_compilation() {
+            self.rebuild_preview();
+        }
+        if self.document.build_progress().is_some() {
+            context.request_repaint_after(std::time::Duration::from_millis(30));
+            egui::TopBottomPanel::bottom("compilation_progress").show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    let (done, total) = self.document.build_progress().unwrap_or_default();
+                    ui.label(format!("Construction CAD : {done}/{total} pièces"));
+                    if ui.small_button("Annuler le calcul").clicked() {
+                        self.document.cancel_build();
+                        self.rebuild_preview();
+                    }
+                });
+            });
+        }
         if !self.theme_installed {
             install_theme(context);
             self.theme_installed = true;
         }
 
-        let search_focused =
-            context.memory(|memory| memory.has_focus(egui::Id::new("robogen_taxonomy_search")));
+        let search_focused = context.memory(|memory| {
+            memory.has_focus(egui::Id::new("robogen_taxonomy_search"))
+                || memory.has_focus(egui::Id::new("robogen_library_search"))
+        });
         if !search_focused {
             let (undo, redo) = context.input_mut(|input| {
                 let redo = input
@@ -325,6 +443,32 @@ impl RoboGenUi {
                             "Nouveau projet",
                             "Création de projet indisponible (M3)",
                         );
+                        ui.menu_button("Exemples", |ui| {
+                            if ui.button("Servomoteur").clicked() {
+                                self.load_servo_example();
+                                ui.close_menu();
+                            }
+                            if ui.button("Carte embarquée (104 × 90 mm)").clicked() {
+                                self.load_compute_board_example();
+                                ui.close_menu();
+                            }
+                            if ui.button("Caméra Raspberry Pi (2013)").clicked() {
+                                self.load_camera_example();
+                                ui.close_menu();
+                            }
+                            if ui.button("Batterie Li-ion (18 × 68 mm)").clicked() {
+                                self.load_battery_example();
+                                ui.close_menu();
+                            }
+                            if ui.button("Mini bipède — disposition").clicked() {
+                                self.load_biped_example();
+                                ui.close_menu();
+                            }
+                            if ui.button("Support contraint").clicked() {
+                                self.set_dsl_source(DEFAULT_DSL);
+                                ui.close_menu();
+                            }
+                        });
                         if icon_button(
                             ui,
                             Icon::Redo,
@@ -378,34 +522,245 @@ impl RoboGenUi {
 
     fn taxonomy_panel(&mut self, context: &Context) {
         SidePanel::left("taxonomy_panel")
-            .exact_width(255.0)
-            .resizable(false)
+            .default_width(310.0)
+            .min_width(260.0)
+            .max_width(420.0)
+            .resizable(true)
             .frame(side_frame())
             .show(context, |ui| {
-                ui.horizontal(|ui| {
-                    ui.heading(RichText::new("Bibliothèque").size(16.0).color(TEXT));
-                    ui.label(RichText::new("/").color(MUTED));
-                    ui.heading(RichText::new("Taxonomie").size(16.0).color(TEXT));
-                });
-                ui.add_space(8.0);
-                ui.add_sized(
-                    [ui.available_width(), 30.0],
-                    TextEdit::singleline(&mut self.taxonomy_filter)
-                        .id(egui::Id::new("robogen_taxonomy_search"))
-                        .hint_text("Rechercher un composant…")
-                        .margin(Margin::symmetric(9, 6)),
+                let height = ui.available_height();
+                let upper = (height * self.taxonomy_fraction)
+                    .max(140.0)
+                    .min((height - 200.0).max(140.0));
+                ui.allocate_ui_with_layout(
+                    vec2(ui.available_width(), upper),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.heading(RichText::new("Taxonomie").size(16.0).color(TEXT));
+                            ui.label(
+                                RichText::new(format!("{} instances", self.taxonomy.len()))
+                                    .size(11.0)
+                                    .color(MUTED),
+                            );
+                        });
+                        if !self.document.is_valid() {
+                            ui.label(
+                                RichText::new(if self.document.build_progress().is_some() {
+                                    "Calcul en cours · résultat précédent"
+                                } else {
+                                    "Source invalide · résultat précédent"
+                                })
+                                .size(11.0)
+                                .color(Color32::from_rgb(224, 171, 90)),
+                            );
+                        }
+                        ui.add_sized(
+                            [ui.available_width(), 28.0],
+                            TextEdit::singleline(&mut self.taxonomy_filter)
+                                .id(egui::Id::new("robogen_taxonomy_search"))
+                                .hint_text("Rechercher une instance…"),
+                        );
+                        ScrollArea::vertical()
+                            .id_salt("instance_tree")
+                            .max_height(ui.available_height())
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                let query = self.taxonomy_filter.trim().to_lowercase();
+                                let instances: Vec<_> = self
+                                    .taxonomy
+                                    .iter()
+                                    .filter(|instance| {
+                                        query.is_empty()
+                                            || instance.name.to_lowercase().contains(&query)
+                                            || instance.features.iter().any(|feature| {
+                                                feature.name.to_lowercase().contains(&query)
+                                                    || feature.functions.iter().any(|name| {
+                                                        name.to_lowercase().contains(&query)
+                                                    })
+                                            })
+                                    })
+                                    .cloned()
+                                    .collect();
+                                if instances.is_empty() {
+                                    ui.label(if self.taxonomy.is_empty() {
+                                        "Aucune instance"
+                                    } else {
+                                        "Aucun résultat"
+                                    });
+                                }
+                                for instance in instances {
+                                    let id = EntityId(instance.id.0);
+                                    let response = ui.selectable_label(
+                                        self.selected_component == Some(id),
+                                        &instance.name,
+                                    );
+                                    if response.clicked() {
+                                        self.selected_component = Some(id);
+                                    }
+                                    if response.double_clicked() {
+                                        self.open_source(instance.span);
+                                    }
+                                    response.on_hover_text("Double-clic : déclaration DSL");
+                                    ui.indent(instance.id, |ui| {
+                                        for feature in &instance.features {
+                                            ui.horizontal_wrapped(|ui| {
+                                                ui.label(
+                                                    RichText::new(&feature.name)
+                                                        .size(11.0)
+                                                        .color(MUTED),
+                                                );
+                                                for name in &feature.functions {
+                                                    if ui.link(format!("{name}()")).clicked() {
+                                                        if let Some(function) = self
+                                                            .functions
+                                                            .iter()
+                                                            .find(|function| function.name == *name)
+                                                        {
+                                                            self.open_source(function.span);
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    });
+                                }
+                            });
+                    },
                 );
-                ui.add_space(8.0);
+                let (divider, response) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::drag());
+                ui.painter().hline(
+                    divider.x_range(),
+                    divider.center().y,
+                    Stroke::new(1.0, BORDER),
+                );
+                let response = response.on_hover_cursor(egui::CursorIcon::ResizeVertical);
+                if response.dragged() {
+                    self.taxonomy_fraction = (self.taxonomy_fraction
+                        + ui.input(|input| input.pointer.delta().y) / height.max(1.0))
+                    .clamp(0.25, 0.7);
+                }
+                self.library_panel(ui);
+            });
+    }
 
-                ScrollArea::vertical().show(ui, |ui| {
-                    taxonomy_group(
-                        ui,
-                        "Robot",
-                        &self.taxonomy,
-                        &self.taxonomy_filter,
-                        &mut self.selected_component,
-                    );
-                });
+    fn library_panel(&mut self, ui: &mut Ui) {
+        ui.heading(RichText::new("Bibliothèque").size(16.0).color(TEXT));
+        ui.add_sized(
+            [ui.available_width(), 28.0],
+            TextEdit::singleline(&mut self.library_filter)
+                .id(egui::Id::new("robogen_library_search"))
+                .hint_text("Rechercher une fonction…"),
+        );
+        ScrollArea::vertical()
+            .id_salt("function_library")
+            .max_height(ui.available_height())
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let query = self.library_filter.trim().to_lowercase();
+                for generator in LibraryGenerator::ALL {
+                    if !query.is_empty()
+                        && !generator.label().to_lowercase().contains(&query)
+                        && !generator.name().contains(&query)
+                    {
+                        continue;
+                    }
+                    ui.push_id(generator.name(), |ui| {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .selectable_label(
+                                    self.selected_generator == Some(generator),
+                                    generator.label(),
+                                )
+                                .clicked()
+                            {
+                                self.selected_generator = Some(generator);
+                            }
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if icon_button(
+                                    ui,
+                                    Icon::Plus,
+                                    self.document.is_valid(),
+                                    &format!("Instancier {}", generator.label()),
+                                    "Document invalide ou calcul en cours",
+                                )
+                                .clicked()
+                                {
+                                    self.instantiate_generator(generator);
+                                }
+                            });
+                        });
+                        ui.label(
+                            RichText::new(format!("{}()", generator.name()))
+                                .monospace()
+                                .size(11.0)
+                                .color(MUTED),
+                        );
+                        if self.selected_generator == Some(generator) {
+                            if generator == LibraryGenerator::JetsonNanoSuper {
+                                ui.label(
+                                    RichText::new("Modèle approximatif · 104 × 90 × 37 mm")
+                                        .size(11.0)
+                                        .color(MUTED),
+                                );
+                            }
+                            if let Some(function) = self
+                                .functions
+                                .iter()
+                                .find(|function| function.name == generator.name())
+                                .cloned()
+                            {
+                                ui.label(RichText::new(&function.signature).monospace().size(11.0));
+                                if ui
+                                    .add_enabled(
+                                        self.document.is_valid(),
+                                        Button::new("Définition DSL"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.open_source(function.span);
+                                }
+                            } else {
+                                ui.label(
+                                    RichText::new("Non instanciée dans ce document")
+                                        .size(11.0)
+                                        .color(MUTED),
+                                );
+                            }
+                        }
+                        ui.separator();
+                    });
+                }
+                let other: Vec<_> = self
+                    .functions
+                    .iter()
+                    .filter(|function| {
+                        !LibraryGenerator::ALL
+                            .iter()
+                            .any(|generator| generator.name() == function.name)
+                            && (query.is_empty() || function.name.to_lowercase().contains(&query))
+                    })
+                    .cloned()
+                    .collect();
+                if !other.is_empty() {
+                    egui::CollapsingHeader::new("Fonctions du document")
+                        .open((!query.is_empty()).then_some(true))
+                        .show(ui, |ui| {
+                            for function in other {
+                                if ui
+                                    .add_enabled(
+                                        self.document.is_valid(),
+                                        egui::Button::new(&function.name).frame(false),
+                                    )
+                                    .on_hover_text(&function.signature)
+                                    .clicked()
+                                {
+                                    self.open_source(function.span);
+                                }
+                            }
+                        });
+                }
             });
     }
 
@@ -533,38 +888,14 @@ impl RoboGenUi {
             egui::StrokeKind::Inside,
         );
 
-        let frame = self.preview_renderer.render_mesh(
+        paint_preview(
+            &painter,
+            rect,
+            egui::Id::new("design_cad_preview"),
+            &self.preview_renderer,
             &self.camera,
-            ViewportSize::new(rect.width(), rect.height()),
             &self.preview_mesh,
         );
-        for triangle in frame.triangles {
-            let points = triangle
-                .points
-                .into_iter()
-                .map(|point| rect.min + vec2(point.x, point.y))
-                .collect();
-            painter.add(Shape::convex_polygon(
-                points,
-                color(triangle.fill),
-                Stroke::new(1.0, color(triangle.outline)),
-            ));
-        }
-        for line in frame.lines {
-            painter.line_segment(
-                [
-                    rect.min + vec2(line.from.x, line.from.y),
-                    rect.min + vec2(line.to.x, line.to.y),
-                ],
-                Stroke::new(line.width, color(line.color)),
-            );
-        }
-        for joint in frame.joints {
-            let center = rect.min + vec2(joint.center.x, joint.center.y);
-            painter.circle_filled(center, joint.radius, color(joint.fill));
-            painter.circle_stroke(center, joint.radius, Stroke::new(1.3, color(joint.outline)));
-            painter.circle_filled(center, (joint.radius * 0.35).max(1.5), VIEWPORT);
-        }
 
         paint_viewport_chrome(&painter, rect);
 
@@ -594,8 +925,10 @@ impl RoboGenUi {
                 .on_disabled_hover_text("Propriétés inertielles indisponibles");
         });
         ui.label(
-            RichText::new(if self.document.is_valid() {
-                format!("Largeur de l’aperçu : {:.0} mm", self.width_mm)
+            RichText::new(if self.document.build_progress().is_some() {
+                "Construction en cours · aperçu précédent · export désactivé".to_owned()
+            } else if self.document.is_valid() {
+                format!("Largeur de l’aperçu : {:.1} mm", self.width_mm)
             } else {
                 "Source invalide · aperçu précédent · export désactivé".to_owned()
             })
@@ -619,25 +952,59 @@ impl RoboGenUi {
                     });
                 });
                 ui.separator();
-                ScrollArea::both()
-                    .max_height((ui.available_height() - 130.0).max(120.0))
-                    .show(ui, |ui| {
-                        let mut output = TextEdit::multiline(&mut self.dsl_source)
-                            .id(egui::Id::new("robogen_dsl_source"))
-                            .code_editor()
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(34)
-                            .show(ui);
-                        source_changed = output.response.changed();
-                        output.state.clear_undoer();
-                        output.state.store(ui.ctx(), output.response.id);
-                    });
+                let mut scroll =
+                    ScrollArea::both().max_height((ui.available_height() - 130.0).max(120.0));
+                if let Some(span) = self.source_selection {
+                    let (line, _) = robogen_dsl::line_column(&self.dsl_source, span.start);
+                    scroll = scroll.vertical_scroll_offset(
+                        line.saturating_sub(2) as f32 * ui.text_style_height(&TextStyle::Monospace),
+                    );
+                }
+                scroll.show(ui, |ui| {
+                    let mut output = TextEdit::multiline(&mut self.dsl_source)
+                        .id(egui::Id::new("robogen_dsl_source"))
+                        .code_editor()
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(34)
+                        .show(ui);
+                    source_changed = output.response.changed();
+                    if let Some(span) = self.source_selection.take() {
+                        let start = self
+                            .dsl_source
+                            .get(..span.start)
+                            .unwrap_or_default()
+                            .chars()
+                            .count();
+                        let end = self
+                            .dsl_source
+                            .get(..span.end)
+                            .unwrap_or_default()
+                            .chars()
+                            .count();
+                        output
+                            .state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::two(
+                                egui::text::CCursor::new(start),
+                                egui::text::CCursor::new(end),
+                            )));
+                        output.response.request_focus();
+                        ui.ctx().request_repaint();
+                    }
+                    output.state.clear_undoer();
+                    output.state.store(ui.ctx(), output.response.id);
+                });
                 ui.separator();
-                if self.diagnostics.is_empty() {
+                if self.document.build_progress().is_some() {
+                    ui.label("Construction CAD en cours");
+                } else if self.document.is_valid() && self.diagnostics.is_empty() {
                     ui.label(
-                        RichText::new(format!("● Modèle valide · WIDTH = {:.0} mm", self.width_mm))
-                            .size(11.0)
-                            .color(SUCCESS),
+                        RichText::new(format!(
+                            "● Modèle valide · largeur = {:.1} mm",
+                            self.width_mm
+                        ))
+                        .size(11.0)
+                        .color(SUCCESS),
                     );
                 } else {
                     ui.label(
@@ -690,6 +1057,19 @@ impl RoboGenUi {
         let Some(project) = self.document.project() else {
             return;
         };
+
+        self.taxonomy = project.taxonomy_instances();
+        self.functions = project.function_definitions();
+        if !self
+            .taxonomy
+            .iter()
+            .any(|instance| self.selected_component == Some(EntityId(instance.id.0)))
+        {
+            self.selected_component = self
+                .taxonomy
+                .first()
+                .map(|instance| EntityId(instance.id.0));
+        }
 
         let mut mesh = robogen_cad::Mesh::default();
         for part_mesh in project.snapshot().meshes.values() {
@@ -1082,51 +1462,6 @@ fn tab_button(ui: &mut Ui, current: &mut DesignTab, target: DesignTab, title: &s
     }
 }
 
-fn taxonomy_group(
-    ui: &mut Ui,
-    root: &str,
-    taxonomy: &ComponentTaxonomy,
-    filter: &str,
-    selected: &mut Option<EntityId>,
-) {
-    egui::CollapsingHeader::new(RichText::new(root).strong().color(TEXT))
-        .default_open(true)
-        .open((!filter.trim().is_empty()).then_some(true))
-        .show(ui, |ui| {
-            let query = filter.trim().to_lowercase();
-            for category in taxonomy.categories() {
-                let visible_items: Vec<_> = category
-                    .entries
-                    .iter()
-                    .filter(|item| {
-                        query.is_empty()
-                            || category.label.to_lowercase().contains(&query)
-                            || item.label.to_lowercase().contains(&query)
-                    })
-                    .collect();
-                if visible_items.is_empty() && !query.is_empty() {
-                    continue;
-                }
-                egui::CollapsingHeader::new(RichText::new(&category.label).color(TEXT))
-                    .id_salt(category.id)
-                    .default_open(true)
-                    .open((!query.is_empty()).then_some(true))
-                    .show(ui, |ui| {
-                        for item in visible_items {
-                            ui.push_id(item.id, |ui| {
-                                if ui
-                                    .selectable_label(*selected == Some(item.id), &item.label)
-                                    .clicked()
-                                {
-                                    *selected = Some(item.id);
-                                }
-                            });
-                        }
-                    });
-            }
-        });
-}
-
 fn status_badge(ui: &mut Ui, text: &str, text_color: Color32) {
     Frame::new()
         .fill(PANEL_RAISED)
@@ -1322,29 +1657,14 @@ fn model_preview_card(
                 Sense::hover(),
             );
             let painter = ui.painter_at(rect);
-            let frame =
-                renderer.render_mesh(camera, ViewportSize::new(rect.width(), rect.height()), mesh);
-            for triangle in frame.triangles {
-                let points = triangle
-                    .points
-                    .into_iter()
-                    .map(|point| rect.min + vec2(point.x, point.y))
-                    .collect();
-                painter.add(Shape::convex_polygon(
-                    points,
-                    color(triangle.fill),
-                    Stroke::new(1.0, color(triangle.outline)),
-                ));
-            }
-            for line in frame.lines {
-                painter.line_segment(
-                    [
-                        rect.min + vec2(line.from.x, line.from.y),
-                        rect.min + vec2(line.to.x, line.to.y),
-                    ],
-                    Stroke::new(line.width, color(line.color)),
-                );
-            }
+            paint_preview(
+                &painter,
+                rect,
+                egui::Id::new(("model_preview", title)),
+                renderer,
+                camera,
+                mesh,
+            );
         });
 }
 
@@ -1353,6 +1673,70 @@ fn unavailable_result_card(ui: &mut Ui, title: &str, detail: &str, height: f32) 
         vec2(ui.available_width(), height),
         Layout::top_down(Align::Min),
         |ui| unavailable_canvas(ui, title, detail, "Aucun résultat calculé"),
+    );
+}
+
+struct CachedPreview {
+    camera: Camera,
+    size: ViewportSize,
+    mesh: PreviewMesh,
+    texture: egui::TextureHandle,
+}
+
+fn paint_preview(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    id: egui::Id,
+    renderer: &RobotPreviewRenderer,
+    camera: &Camera,
+    mesh: &PreviewMesh,
+) {
+    let size = ViewportSize::new(rect.width(), rect.height());
+    for line in renderer.grid(camera, size) {
+        painter.line_segment(
+            [
+                rect.min + vec2(line.from.x, line.from.y),
+                rect.min + vec2(line.to.x, line.to.y),
+            ],
+            Stroke::new(line.width, color(line.color)),
+        );
+    }
+    let existing = painter
+        .ctx()
+        .data(|data| data.get_temp::<std::sync::Arc<CachedPreview>>(id));
+    let cache = existing
+        .filter(|cache| cache.camera == *camera && cache.size == size && cache.mesh == *mesh)
+        .unwrap_or_else(|| {
+            let image = renderer.rasterize_mesh(camera, size, mesh);
+            let pixels = image
+                .pixels
+                .into_iter()
+                .map(|pixel| Color32::from_rgba_unmultiplied(pixel.r, pixel.g, pixel.b, pixel.a))
+                .collect();
+            let texture = painter.ctx().load_texture(
+                "cad_depth_preview",
+                egui::ColorImage {
+                    size: [image.width, image.height],
+                    pixels,
+                },
+                egui::TextureOptions::NEAREST,
+            );
+            let cache = std::sync::Arc::new(CachedPreview {
+                camera: *camera,
+                size,
+                mesh: mesh.clone(),
+                texture,
+            });
+            painter
+                .ctx()
+                .data_mut(|data| data.insert_temp(id, cache.clone()));
+            cache
+        });
+    painter.image(
+        cache.texture.id(),
+        rect,
+        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+        Color32::WHITE,
     );
 }
 
@@ -1498,18 +1882,21 @@ fn cad_preview(mesh: &robogen_cad::Mesh) -> (PreviewMesh, f32) {
     }
     let center = [
         (minimum[0] + maximum[0]) * 0.5,
-        minimum[1],
-        (minimum[2] + maximum[2]) * 0.5,
+        (minimum[1] + maximum[1]) * 0.5,
+        minimum[2],
     ];
-    const METRES_TO_PREVIEW: f32 = 40.0;
+    let scale = 3.0
+        / (0..3)
+            .map(|axis| maximum[axis] - minimum[axis])
+            .fold(f32::EPSILON, f32::max);
     let positions = mesh
         .vertices
         .iter()
         .map(|vertex| {
             [
-                (vertex.position[0] - center[0]) * METRES_TO_PREVIEW,
-                (vertex.position[1] - center[1]) * METRES_TO_PREVIEW,
-                (vertex.position[2] - center[2]) * METRES_TO_PREVIEW,
+                (vertex.position[0] - center[0]) * scale,
+                (vertex.position[2] - center[2]) * scale,
+                -(vertex.position[1] - center[1]) * scale,
             ]
         })
         .collect();
@@ -1519,7 +1906,17 @@ fn cad_preview(mesh: &robogen_cad::Mesh) -> (PreviewMesh, f32) {
         .map(|triangle| triangle.indices)
         .collect();
     let width_mm = (maximum[0] - minimum[0]) * 1_000.0;
-    (PreviewMesh::new(positions, triangles), width_mm)
+    let mut preview = PreviewMesh::new(positions, triangles);
+    preview.colors = mesh
+        .triangles
+        .iter()
+        .map(|triangle| {
+            triangle
+                .color
+                .map(|[red, green, blue]| Rgba8::rgb(red, green, blue))
+        })
+        .collect();
+    (preview, width_mm)
 }
 
 const DEFAULT_DSL: &str = r#"module bracket_demo;
@@ -1555,13 +1952,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn left_column_shows_generated_instances_above_function_library(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for size in [vec2(1440.0, 831.0), vec2(1080.0, 680.0)] {
+            let context = Context::default();
+            let mut state = RoboGenUi::default();
+            let draw = |state: &mut RoboGenUi| {
+                context.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                        ..Default::default()
+                    },
+                    |context| state.show(context),
+                )
+            };
+            draw(&mut state);
+            let output = draw(&mut state);
+            let taxonomy = text_rect(&output, "Taxonomie").ok_or("missing taxonomy")?;
+            let library = text_rect(&output, "Bibliothèque").ok_or("missing library")?;
+            let assistant = text_rect(&output, "Assistant IA").ok_or("missing assistant")?;
+            assert!(taxonomy.right() < size.x / 2.0);
+            assert!(library.top() > taxonomy.bottom());
+            assert!(assistant.left() > size.x / 2.0);
+            assert!(text_rect(&output, "Bracket").is_some());
+            for label in ["Servomoteur", "Camera Raspberry Pi", "Jetson Nano Super"] {
+                let rect = text_rect(&output, label).ok_or("missing generator")?;
+                assert!(rect.top() > library.bottom() && rect.bottom() < size.y);
+            }
+            assert!(text_rect(&output, "Patte").is_none());
+            assert!(state.instantiate_generator(LibraryGenerator::Camera));
+            assert_eq!(state.taxonomy.len(), 2);
+            let function = state
+                .functions
+                .iter()
+                .find(|function| function.name == "raspberry_pi_camera")
+                .ok_or("missing definition")?
+                .clone();
+            state.open_source(function.span);
+            assert_eq!(state.design_tab, DesignTab::Dsl);
+            draw(&mut state);
+            assert!(state.source_selection.is_none());
+            assert!(state.undo());
+            assert_eq!(state.taxonomy.len(), 1);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn starts_in_design_mode() {
         let ui = RoboGenUi::default();
         assert_eq!(ui.mode(), WorkspaceMode::Design);
         assert_eq!(
             ui.selected_component,
-            Some(EntityId::from_name("robogen::taxonomy::builtin::limb::leg"))
+            ui.taxonomy.first().map(|instance| EntityId(instance.id.0))
         );
+        assert_eq!(ui.taxonomy[0].name, "Bracket");
         assert!(ui.dsl_source.contains("parameter WIDTH = 40 mm"));
         assert!(ui.diagnostics.is_empty());
         assert!(!ui.preview_mesh.is_empty());
@@ -1706,12 +2151,266 @@ mod tests {
     }
 
     #[test]
+    fn servo_example_reaches_colored_preview_and_export() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut state = RoboGenUi::default();
+        state.enable_background_compilation()?;
+        state.load_servo_example();
+        assert!(!state.can_export());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while !state.document.poll_compilation() {
+            if std::time::Instant::now() > deadline {
+                return Err("servo compilation timeout".into());
+            }
+            std::thread::yield_now();
+        }
+        state.rebuild_preview();
+        assert!(state.can_export(), "{:?}", state.diagnostics);
+        assert!((state.width_mm - 11.8).abs() < 1e-4);
+        assert_eq!(
+            state.preview_mesh.colors.len(),
+            state.cad_mesh.triangles.len()
+        );
+        assert!(state.preview_mesh.colors.iter().all(Option::is_some));
+        assert!(state.request_export());
+        assert!(matches!(state.take_action(), Some(UiAction::ExportStl(_))));
+        state.set_dsl_source("module broken; part");
+        assert!(!state.can_export());
+        assert!(state.take_action().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn camera_example_loads_in_background_exports_and_undoes(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut state = RoboGenUi::default();
+        let original = state.dsl_source().to_owned();
+        state.enable_background_compilation()?;
+        state.load_camera_example();
+        assert!(!state.can_export());
+        assert_eq!(state.mode(), WorkspaceMode::Design);
+        assert_eq!(state.design_tab, DesignTab::Viewport);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while !state.document.poll_compilation() {
+            if std::time::Instant::now() > deadline {
+                return Err("camera compilation timeout".into());
+            }
+            std::thread::yield_now();
+        }
+        state.rebuild_preview();
+        assert!(state.can_export(), "{:?}", state.diagnostics);
+        assert!((state.width_mm - 28.9).abs() < 1e-4);
+        assert!(state.preview_mesh.colors.iter().all(Option::is_some));
+        for size in [
+            ViewportSize::new(600.0, 400.0),
+            ViewportSize::new(320.0, 240.0),
+        ] {
+            let image =
+                state
+                    .preview_renderer
+                    .rasterize_mesh(&state.camera, size, &state.preview_mesh);
+            assert!(
+                image.pixels.iter().filter(|pixel| pixel.a == 255).count()
+                    > image.pixels.len() / 20
+            );
+            assert!(
+                image.pixels.iter().any(|pixel| pixel.a == 255
+                    && pixel.b > pixel.g
+                    && pixel.g > pixel.r
+                    && pixel.r >= 30),
+                "lens must be visible"
+            );
+        }
+        assert!(state.request_export());
+        assert!(matches!(state.take_action(), Some(UiAction::ExportStl(_))));
+        assert!(state.undo());
+        assert_eq!(state.dsl_source(), original);
+        assert!(!state.can_export());
+        Ok(())
+    }
+
+    #[test]
+    fn biped_loads_asynchronously_is_visible_and_undoes() -> Result<(), String> {
+        let mut state = RoboGenUi::default();
+        let previous = state.dsl_source().to_owned();
+        state
+            .enable_background_compilation()
+            .map_err(|error| error.to_string())?;
+        state.load_biped_example();
+        assert!(!state.can_export());
+        let wait = |state: &mut RoboGenUi| -> Result<(), String> {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
+            while !state.document.poll_compilation() {
+                if std::time::Instant::now() > deadline {
+                    return Err("biped compilation timeout".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            state.rebuild_preview();
+            Ok(())
+        };
+        wait(&mut state)?;
+        assert!(state.can_export(), "{:?}", state.diagnostics);
+        assert_eq!(state.taxonomy.len(), 17);
+        for size in [
+            ViewportSize::new(600.0, 400.0),
+            ViewportSize::new(320.0, 240.0),
+        ] {
+            let frame =
+                state
+                    .preview_renderer
+                    .render_mesh(&state.camera, size, &state.preview_mesh);
+            assert!(!frame.triangles.is_empty());
+            assert!(
+                frame
+                    .triangles
+                    .iter()
+                    .flat_map(|triangle| triangle.points)
+                    .all(|point| point.x > 8.0
+                        && point.x < size.width - 8.0
+                        && point.y > 8.0
+                        && point.y < size.height - 8.0),
+                "entire biped including head and ankles must fit at {size:?}"
+            );
+            let image =
+                state
+                    .preview_renderer
+                    .rasterize_mesh(&state.camera, size, &state.preview_mesh);
+            assert!(
+                image
+                    .pixels
+                    .iter()
+                    .filter(|pixel| pixel.a == 255 && pixel.b > 100 && pixel.b > pixel.r)
+                    .count()
+                    > 100,
+                "blue servos visible at {size:?}"
+            );
+        }
+        assert!(state.request_export());
+        assert!(matches!(state.take_action(), Some(UiAction::ExportStl(_))));
+        assert!(state.undo());
+        assert_eq!(state.dsl_source(), previous);
+        assert!(!state.can_export());
+        wait(&mut state)?;
+        assert!(state.redo());
+        assert!(!state.can_export());
+        wait(&mut state)?;
+        assert_eq!(state.taxonomy.len(), 17);
+        assert!(state.can_export());
+        state.set_dsl_source("module invalid; part");
+        assert!(!state.can_export());
+        Ok(())
+    }
+
+    #[test]
+    fn battery_example_is_visible_exportable_and_undoable() {
+        let mut state = RoboGenUi::default();
+        let previous = state.dsl_source().to_owned();
+        state.load_battery_example();
+        assert!(state.can_export(), "{:?}", state.diagnostics);
+        assert!((state.width_mm - 18.0).abs() < 1e-4);
+        for size in [
+            ViewportSize::new(600.0, 400.0),
+            ViewportSize::new(320.0, 240.0),
+        ] {
+            let image =
+                state
+                    .preview_renderer
+                    .rasterize_mesh(&state.camera, size, &state.preview_mesh);
+            assert!(
+                image
+                    .pixels
+                    .iter()
+                    .filter(|pixel| pixel.a == 255 && pixel.r > 100 && pixel.g > 80 && pixel.b < 40)
+                    .count()
+                    > 100,
+                "yellow pack must be visible"
+            );
+            assert!(
+                image
+                    .pixels
+                    .iter()
+                    .filter(|pixel| pixel.a == 255 && pixel.r > 100 && pixel.g < 60 && pixel.b < 60)
+                    .count()
+                    > 10,
+                "red connector must be visible"
+            );
+        }
+        assert!(state.request_export());
+        assert!(matches!(state.take_action(), Some(UiAction::ExportStl(_))));
+        assert!(state.undo());
+        assert_eq!(state.dsl_source(), previous);
+        assert!(state.instantiate_generator(LibraryGenerator::Battery));
+        assert!(state
+            .taxonomy
+            .iter()
+            .any(|instance| instance.name == "li_ion_battery_1"));
+        assert!(state.undo());
+        assert_eq!(state.dsl_source(), previous);
+    }
+
+    #[test]
+    fn compute_board_example_is_colored_exportable_and_undoable() {
+        let mut state = RoboGenUi::default();
+        let previous = state.dsl_source().to_owned();
+        state.load_compute_board_example();
+        assert!(state.can_export(), "{:?}", state.diagnostics);
+        assert!((state.width_mm - 104.0).abs() < 1e-4);
+        assert!(state.preview_mesh.colors.iter().all(Option::is_some));
+        assert!(state.request_export());
+        assert!(matches!(state.take_action(), Some(UiAction::ExportStl(_))));
+        assert!(state.undo());
+        assert_eq!(state.dsl_source(), previous);
+    }
+
+    #[test]
+    fn raster_cache_reuses_texture_and_invalidates_camera_mesh_and_size() -> Result<(), &'static str>
+    {
+        let context = Context::default();
+        let id = egui::Id::new("preview_cache_test");
+        let mut camera = Camera::default();
+        let mut mesh = PreviewMesh::new(
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            vec![[0, 1, 2]],
+        );
+        let draw = |camera: &Camera, mesh: &PreviewMesh, width: f32| {
+            let _output = context.run(egui::RawInput::default(), |context| {
+                let painter = context.layer_painter(egui::LayerId::background());
+                paint_preview(
+                    &painter,
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 100.0)),
+                    id,
+                    &RobotPreviewRenderer,
+                    camera,
+                    mesh,
+                );
+            });
+            context
+                .data(|data| data.get_temp::<std::sync::Arc<CachedPreview>>(id))
+                .ok_or("missing raster cache")
+        };
+        let first = draw(&camera, &mesh, 160.0)?;
+        let unchanged = draw(&camera, &mesh, 160.0)?;
+        assert!(std::sync::Arc::ptr_eq(&first, &unchanged));
+        camera.orbit(20.0, 10.0);
+        let moved = draw(&camera, &mesh, 160.0)?;
+        assert!(!std::sync::Arc::ptr_eq(&first, &moved));
+        mesh.colors = vec![Some(Rgba8::rgb(255, 0, 0))];
+        let recolored = draw(&camera, &mesh, 160.0)?;
+        assert!(!std::sync::Arc::ptr_eq(&moved, &recolored));
+        let resized = draw(&camera, &mesh, 180.0)?;
+        assert!(!std::sync::Arc::ptr_eq(&recolored, &resized));
+        Ok(())
+    }
+
+    #[test]
     fn changing_width_rebuilds_the_preview() {
         let mut ui = RoboGenUi::default();
-        let before = ui.preview_mesh.positions[1][0];
+        let before = ui.preview_mesh.positions.clone();
         ui.set_dsl_source(ui.dsl_source.replace("WIDTH = 40 mm", "WIDTH = 80 mm"));
         assert_eq!(ui.width_mm, 80.0);
-        assert!(ui.preview_mesh.positions[1][0] > before);
+        assert_ne!(ui.preview_mesh.positions, before);
+        assert!((ui.cad_mesh.vertices[1].position[0] - 0.08).abs() < 1e-6);
         assert!(ui.diagnostics.is_empty());
     }
 
@@ -2000,39 +2699,44 @@ mod tests {
     }
 
     #[test]
-    fn injected_taxonomy_is_searchable_and_selectable_without_source_mutation(
+    fn generated_taxonomy_is_searchable_and_selectable_without_source_mutation(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let context = Context::default();
         let mut state = RoboGenUi::default();
-        let mut taxonomy = ComponentTaxonomy::default();
-        let entry_id = EntityId::from_name("custom::topology::region");
-        let result = taxonomy.register_category(robogen_domain::TaxonomyCategory {
-            id: EntityId::from_name("custom::topology"),
-            label: String::from("Topologie"),
-            entries: vec![robogen_domain::TaxonomyEntry {
-                id: entry_id,
-                label: String::from("Zone de conception"),
-            }],
-        });
-        assert!(result.is_ok());
-        state.set_taxonomy(taxonomy);
-        state.taxonomy_filter = "TOPOLOGIE".to_owned();
+        let source = format!("{DEFAULT_DSL}\ncomponent servo() -> Solid {{ return box([10 mm, 10 mm, 10 mm]); }}\npart servo_gauche {{ material: Aluminium6061; body = servo(); }}\npart servo_droit {{ material: Aluminium6061; body = translate([20 mm, 0 mm, 0 mm], servo()); }}");
+        state.set_dsl_source(source.clone());
+        let entry_id = EntityId(
+            state
+                .taxonomy
+                .iter()
+                .find(|instance| instance.name == "servo_droit")
+                .ok_or("missing generated instance")?
+                .id
+                .0,
+        );
+        state.taxonomy_filter = "DROIT".to_owned();
         frame(&mut state, &context, Vec::new());
         let output = frame(&mut state, &context, Vec::new());
-        let rect = text_rect(&output, "Zone de conception").ok_or("custom entry not rendered")?;
-        assert!(text_rect(&output, "Patte").is_none());
+        let rect = text_rect(&output, "servo_droit").ok_or("instance not rendered")?;
+        assert!(text_rect(&output, "servo_gauche").is_none());
         click(&mut state, &context, rect.center());
         assert_eq!(state.selected_component(), Some(entry_id));
-        assert_eq!(state.dsl_source(), DEFAULT_DSL);
-        assert!(!state.can_undo());
-        state.taxonomy_filter = "ZONE".to_owned();
+        assert_eq!(state.dsl_source(), source);
+        state.taxonomy_filter = "GAUCHE".to_owned();
+        assert!(text_rect(&frame(&mut state, &context, Vec::new()), "servo_gauche").is_some());
+        let before = state.taxonomy.clone();
+        state.set_dsl_source("module broken; part");
+        assert_eq!(state.taxonomy, before);
         assert!(text_rect(
             &frame(&mut state, &context, Vec::new()),
-            "Zone de conception"
+            "Source invalide · résultat précédent"
         )
         .is_some());
-        state.set_taxonomy(ComponentTaxonomy::default());
-        assert_eq!(state.selected_component(), None);
+        assert!(!state.instantiate_generator(LibraryGenerator::Camera));
+        assert!(state.undo());
+        assert!(state.undo());
+        assert_eq!(state.dsl_source(), DEFAULT_DSL);
+        assert_eq!(state.taxonomy.len(), 1);
         Ok(())
     }
 

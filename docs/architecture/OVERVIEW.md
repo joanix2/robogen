@@ -180,3 +180,12 @@ Les benchmarks ciblent le parser, le solveur de sketch, le rebuild CAD, la tesse
 
 Les choix remplacables et leurs seuils de reexamen sont documentes dans `docs/adr/`. Un remplacement doit d'abord passer les tests de contrat et les fixtures de reference. Les formats persistants et DTO du domaine evoluent par migration ; un changement d'API tierce reste confine a son adaptateur.
 
+
+## Complement du 2026-10-07 : disposition du bipede
+
+[ADR-011](../adr/ADR-011-component-placement.md) ajoute la rotation rigide typee
+aux composants proceduraux d'ADR-010. L'exemple mini_biped projette leurs
+positions parametriques en geometrie. Il n'ajoute ni solveur d'assemblage, ni
+OptimizationSpec, ni backend TopOpt. Le ticket 15 definit la suite vers des
+supports generes depuis des contraintes ; les dependances M7/M8 restent
+inchangees. Cette tranche ne valide pas les jalons encore ouverts ci-dessus.

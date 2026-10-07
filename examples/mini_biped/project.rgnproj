@@ -1,0 +1,3 @@
+schema_version = 1
+name = "Mini bipede - disposition des composants"
+source = "main.rgn"

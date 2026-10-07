@@ -3,6 +3,9 @@
 use robogen_domain::{Diagnostic, SourceSpan};
 use serde::{Deserialize, Serialize};
 
+mod library;
+pub use library::component_library;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Module {
     pub name: String,
@@ -107,14 +110,30 @@ pub struct Expr {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ExprKind {
-    Number { value: f64, unit: Option<String> },
+    Number {
+        value: f64,
+        unit: Option<String>,
+    },
     Reference(String),
     String(String),
     Vector(Vec<Expr>),
-    Call { name: String, args: Vec<Expr> },
-    Named { name: String, value: Box<Expr> },
-    Binary { operator: char, left: Box<Expr>, right: Box<Expr> },
-    Unary { operator: char, value: Box<Expr> },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+    },
+    Named {
+        name: String,
+        value: Box<Expr>,
+    },
+    Binary {
+        operator: char,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Unary {
+        operator: char,
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -230,9 +249,7 @@ fn lex(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
             b if b.is_ascii_alphabetic() || b == b'_' => {
                 let start = i;
                 i += 1;
-                while i < bytes.len()
-                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
-                {
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                     i += 1;
                 }
                 if (&source[start..i] == "kg" && source[i..].starts_with("/m3"))
@@ -245,8 +262,8 @@ fn lex(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
                     span: SourceSpan::new(start, i),
                 });
             }
-            b @ (b'{' | b'}' | b'(' | b')' | b':' | b';' | b'=' | b',' | b'.' | b'-'
-                | b'+' | b'*' | b'/' | b'[' | b']' | b'>') => {
+            b @ (b'{' | b'}' | b'(' | b')' | b':' | b';' | b'=' | b',' | b'.' | b'-' | b'+'
+            | b'*' | b'/' | b'[' | b']' | b'>') => {
                 tokens.push(Token {
                     kind: TokenKind::Symbol(b as char),
                     span: SourceSpan::new(i, i + 1),
@@ -304,7 +321,10 @@ impl Parser {
             } else if self.take_keyword("component") {
                 self.component().map(Declaration::Component)
             } else if self.take_keyword("import") {
-                self.error_here("E109", "imports are unavailable; define components in the same file");
+                self.error_here(
+                    "E109",
+                    "imports are unavailable; define components in the same file",
+                );
                 self.recover_declaration();
                 None
             } else {
@@ -349,12 +369,20 @@ impl Parser {
             let name = self.take_ident("parameter name")?;
             self.expect_symbol(':');
             let type_name = self.take_ident("parameter type")?;
-            let default = if self.take_symbol('=') { Some(self.expr()?) } else { None };
+            let default = if self.take_symbol('=') {
+                Some(self.expr()?)
+            } else {
+                None
+            };
             parameters.push(ComponentParameter {
-                name, type_name, default,
+                name,
+                type_name,
+                default,
                 span: SourceSpan::new(param_start, self.previous_span().end),
             });
-            if !self.take_symbol(',') { break; }
+            if !self.take_symbol(',') {
+                break;
+            }
         }
         self.expect_symbol(')');
         self.expect_symbol('-');
@@ -378,21 +406,33 @@ impl Parser {
                 self.expect_symbol('=');
                 if let Some(value) = self.expr() {
                     let end = self.expect_symbol(';').end;
-                    bindings.push(Field { name, value, span: SourceSpan::new(binding_start, end) });
+                    bindings.push(Field {
+                        name,
+                        value,
+                        span: SourceSpan::new(binding_start, end),
+                    });
                 } else {
                     self.recover_statement();
                 }
             } else {
                 self.recover_statement();
             }
-            if self.cursor == before { self.bump(); }
+            if self.cursor == before {
+                self.bump();
+            }
         }
         let end = self.expect_symbol('}').end;
         let Some(result) = result else {
             self.error_here("E112", "component requires a return expression");
             return None;
         };
-        Some(ComponentDecl { name, parameters, bindings, result, span: SourceSpan::new(start, end) })
+        Some(ComponentDecl {
+            name,
+            parameters,
+            bindings,
+            result,
+            span: SourceSpan::new(start, end),
+        })
     }
 
     fn material(&mut self) -> Option<MaterialDecl> {
@@ -595,17 +635,28 @@ impl Parser {
         let mut args = Vec::new();
         while !self.at_symbol(')') && !self.at_eof() {
             let named = matches!(&self.peek().kind, TokenKind::Ident(_))
-                && self.tokens.get(self.cursor + 1).is_some_and(|token| token.kind == TokenKind::Symbol(':'));
+                && self
+                    .tokens
+                    .get(self.cursor + 1)
+                    .is_some_and(|token| token.kind == TokenKind::Symbol(':'));
             let start = self.peek().span.start;
             let name = if named {
                 let name = self.take_ident("argument name");
                 self.expect_symbol(':');
                 name
-            } else { None };
+            } else {
+                None
+            };
             if let Some(mut arg) = self.expr() {
                 if let Some(name) = name {
                     let span = SourceSpan::new(start, arg.span.end);
-                    arg = Expr { kind: ExprKind::Named { name, value: Box::new(arg) }, span };
+                    arg = Expr {
+                        kind: ExprKind::Named {
+                            name,
+                            value: Box::new(arg),
+                        },
+                        span,
+                    };
                 }
                 args.push(arg);
             } else {
@@ -637,9 +688,13 @@ impl Parser {
         let mut left = self.atom()?;
         let mut operators = 0;
         loop {
-            let TokenKind::Symbol(operator @ ('+' | '-' | '*' | '/')) = self.peek().kind else { break; };
+            let TokenKind::Symbol(operator @ ('+' | '-' | '*' | '/')) = self.peek().kind else {
+                break;
+            };
             let precedence = if matches!(operator, '*' | '/') { 2 } else { 1 };
-            if precedence < minimum { break; }
+            if precedence < minimum {
+                break;
+            }
             operators += 1;
             if operators + self.expression_depth >= 48 {
                 self.error_here("E113", "expression depth limit exceeded");
@@ -648,7 +703,14 @@ impl Parser {
             self.bump();
             let right = self.binary(precedence + 1)?;
             let span = left.span.merge(right.span);
-            left = Expr { kind: ExprKind::Binary { operator, left: Box::new(left), right: Box::new(right) }, span };
+            left = Expr {
+                kind: ExprKind::Binary {
+                    operator,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                span,
+            };
             if expression_too_deep(&left) {
                 self.error_here("E113", "expression depth limit exceeded");
                 return None;
@@ -664,7 +726,13 @@ impl Parser {
                 self.bump();
                 let value = self.binary(3)?;
                 let span = token.span.merge(value.span);
-                Some(Expr { kind: ExprKind::Unary { operator, value: Box::new(value) }, span })
+                Some(Expr {
+                    kind: ExprKind::Unary {
+                        operator,
+                        value: Box::new(value),
+                    },
+                    span,
+                })
             }
             TokenKind::Symbol('(') => {
                 self.bump();
@@ -677,10 +745,15 @@ impl Parser {
                 let mut values = Vec::new();
                 while !self.at_symbol(']') && !self.at_eof() {
                     values.push(self.expr()?);
-                    if !self.take_symbol(',') { break; }
+                    if !self.take_symbol(',') {
+                        break;
+                    }
                 }
                 let end = self.expect_symbol(']').end;
-                Some(Expr { kind: ExprKind::Vector(values), span: SourceSpan::new(token.span.start, end) })
+                Some(Expr {
+                    kind: ExprKind::Vector(values),
+                    span: SourceSpan::new(token.span.start, end),
+                })
             }
             TokenKind::Number(value) => {
                 self.bump();
@@ -693,14 +766,8 @@ impl Parser {
                     _ => None,
                 };
                 Some(Expr {
-                    kind: ExprKind::Number {
-                        value,
-                        unit,
-                    },
-                    span: SourceSpan::new(
-                        token.span.start,
-                        self.previous_span().end,
-                    ),
+                    kind: ExprKind::Number { value, unit },
+                    span: SourceSpan::new(token.span.start, self.previous_span().end),
                 })
             }
             TokenKind::Ident(_) => {
@@ -709,7 +776,9 @@ impl Parser {
                     let args = self.arg_list();
                     self.expect_symbol(')');
                     ExprKind::Call { name: value, args }
-                } else { ExprKind::Reference(value) };
+                } else {
+                    ExprKind::Reference(value)
+                };
                 Some(Expr {
                     kind,
                     span: SourceSpan::new(token.span.start, self.previous_span().end),
@@ -841,14 +910,20 @@ fn is_unit(value: &str) -> bool {
 fn expression_too_deep(expression: &Expr) -> bool {
     let mut pending = vec![(expression, 1)];
     while let Some((expression, depth)) = pending.pop() {
-        if depth > 48 { return true; }
+        if depth > 48 {
+            return true;
+        }
         match &expression.kind {
             ExprKind::Binary { left, right, .. } => {
                 pending.push((left, depth + 1));
                 pending.push((right, depth + 1));
             }
-            ExprKind::Unary { value, .. } | ExprKind::Named { value, .. } => pending.push((value, depth + 1)),
-            ExprKind::Call { args, .. } | ExprKind::Vector(args) => pending.extend(args.iter().map(|arg| (arg, depth + 1))),
+            ExprKind::Unary { value, .. } | ExprKind::Named { value, .. } => {
+                pending.push((value, depth + 1))
+            }
+            ExprKind::Call { args, .. } | ExprKind::Vector(args) => {
+                pending.extend(args.iter().map(|arg| (arg, depth + 1)))
+            }
             _ => {}
         }
     }
@@ -908,7 +983,10 @@ part Body { material: PLA; base = extrude(Profile, 4 mm); }
     fn parses_component_calls_vectors_and_arithmetic() {
         let output = parse("module actuators.servos; component servo(width: Length = 23 mm) -> Solid { body = box(size: [width, width/2, -(-2 mm)]); return translate([0 mm, 0 mm, width], body); } part P { material: M; body = servo(width: 25 mm); }");
         assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-        assert!(output.module.as_ref().is_some_and(|module| matches!(module.declarations.first(), Some(Declaration::Component(_)))));
+        assert!(output.module.as_ref().is_some_and(|module| matches!(
+            module.declarations.first(),
+            Some(Declaration::Component(_))
+        )));
     }
 
     #[test]
@@ -935,13 +1013,18 @@ part Body { material: PLA; base = extrude(Profile, 4 mm); }
             format!("{}1{}", "f(".repeat(2000), ")".repeat(2000)),
         ] {
             let output = parse(&format!("module x; parameter A = {expression};"));
-            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == "E113"));
+            assert!(output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "E113"));
         }
     }
 
     #[test]
     fn every_prefix_of_component_source_terminates() {
         let source = "module x; component f(w: Length = 1 mm) -> Solid { a = box(size:[w,w/2,w]); return union(a, translate([w,0 mm,0 mm],a)); } part P { material: M; a=f(w:2 mm); }";
-        for end in 0..=source.len() { let _ = parse(&source[..end]); }
+        for end in 0..=source.len() {
+            let _ = parse(&source[..end]);
+        }
     }
 }

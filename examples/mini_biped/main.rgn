@@ -1,0 +1,425 @@
+module mini_biped;
+
+// Initial layout only. Supports are to be generated from constraints (ticket 15).
+// X: robot left, Y: rear, Z: up. Lengths in mm, rotations right-handed.
+// These dimensions are design hypotheses, not validated robot specifications.
+parameter LEG_SPACING = 110 mm;
+parameter SHIN_LENGTH = 65 mm;
+parameter THIGH_LENGTH = 65 mm;
+parameter ANKLE_ROLL_Z = 16 mm;
+parameter ANKLE_PITCH_Z = 50 mm;
+parameter KNEE_Z = ANKLE_PITCH_Z + SHIN_LENGTH;
+parameter HIP_PITCH_Z = KNEE_Z + THIGH_LENGTH;
+parameter HIP_ROLL_Z = HIP_PITCH_Z + 35 mm;
+parameter TORSO_BASE_Z = HIP_ROLL_Z + 27 mm;
+parameter SHOULDER_SPACING = 190 mm;
+parameter SHOULDER_Z = TORSO_BASE_Z + 58 mm;
+parameter UPPER_ARM_LENGTH = 65 mm;
+parameter ELBOW_Z = SHOULDER_Z - UPPER_ARM_LENGTH;
+parameter HEAD_Z = TORSO_BASE_Z + 113 mm;
+parameter BATTERY_Z = HIP_ROLL_Z + 2 mm;
+parameter BATTERY_REAR_OFFSET = 40 mm;
+
+// Library definitions copied without shape changes; imports are not supported.
+parameter lib_servo_JEU = 0 mm;
+
+material lib_servo_ServoPlastic {
+    density: 1240 kg/m3;
+    young: 3.5 GPa;
+    poisson: 0.36;
+    yield_strength: 50 MPa;
+}
+
+component lib_servo_servo_main(jeu: Length = 0 mm) -> Solid {
+    body = translate(offset: [-jeu, -jeu, -jeu],
+        shape: box(size: [11.8 mm + jeu * 2, 22.5 mm + jeu * 2, 22.7 mm + jeu * 2]));
+    tabs = translate(offset: [0 mm, -4.7 mm, 15.9 mm],
+        shape: box(size: [11.8 mm, 31.9 mm, 2.5 mm]));
+    bridge = translate(offset: [3.4 mm, 10.8 mm, 22.7 mm],
+        shape: box(size: [5 mm, 3.5 mm, 4 mm]));
+    gear = translate(offset: [5.9 mm, 5.9 mm, 22.7 mm],
+        shape: cylinder(radius: 5.9 mm, height: 4 mm));
+    boss = translate(offset: [5.9 mm, 14.3 mm, 22.7 mm],
+        shape: cylinder(radius: 2.5 mm, height: 4 mm));
+    shaft = translate(offset: [5.9 mm, 5.9 mm, 26.7 mm],
+        shape: cylinder(radius: 2.3 mm, height: 3.2 mm));
+    connector = translate(offset: [4.1 mm, -3 mm, 4.5 mm],
+        shape: box(size: [3.6 mm, 3 mm, 12 mm]));
+    housing = color(red: 48, green: 108, blue: 224, shape: union(body, tabs, bridge, gear, boss));
+    metal = color(red: 210, green: 215, blue: 222, shape: shaft);
+    plug = color(red: 25, green: 28, blue: 32, shape: connector);
+    return union(housing, metal, plug);
+}
+
+component servo(jeu: Length = lib_servo_JEU) -> Solid {
+    front_hole = translate(offset: [5.9 mm, -2.4 mm, 15.5 mm],
+        shape: cylinder(radius: 1 mm, height: 3 mm));
+    rear_hole = translate(offset: [5.9 mm, 24.9 mm, 15.5 mm],
+        shape: cylinder(radius: 1 mm, height: 3 mm));
+    front_slot = translate(offset: [5.25 mm, -4.7 mm, 15.5 mm],
+        shape: box(size: [1.3 mm, 2.3 mm, 3 mm]));
+    rear_slot = translate(offset: [5.25 mm, 24.9 mm, 15.5 mm],
+        shape: box(size: [1.3 mm, 2.3 mm, 3 mm]));
+    return color(red: 48, green: 108, blue: 224,
+        shape: difference(lib_servo_servo_main(jeu: jeu), front_hole, rear_hole, front_slot, rear_slot));
+}
+
+
+
+parameter lib_camera_MOUNT_DIAMETER = 2 mm;
+
+parameter lib_camera_PCB_THICKNESS = 0.95 mm;
+
+material lib_camera_DisplayOnly {
+    density: 1200 kg/m3;
+    young: 3 GPa;
+    poisson: 0.35;
+    yield_strength: 40 MPa;
+}
+
+component lib_camera_camera_pcb(hole_diameter: Length = lib_camera_MOUNT_DIAMETER) -> Solid {
+    board = box(size: [23.9 mm, 25 mm, lib_camera_PCB_THICKNESS]);
+    hole = cylinder(radius: hole_diameter / 2, height: lib_camera_PCB_THICKNESS + 2 mm);
+    return color(red: 35, green: 125, blue: 72, shape: difference(board,
+        translate(offset: [9.35 mm, 2 mm, -1 mm], shape: hole),
+        translate(offset: [21.85 mm, 2 mm, -1 mm], shape: hole),
+        translate(offset: [9.35 mm, 23 mm, -1 mm], shape: hole),
+        translate(offset: [21.85 mm, 23 mm, -1 mm], shape: hole)));
+}
+
+component lib_camera_camera_optics() -> Solid {
+    base = translate(offset: [5.1 mm, 8.5 mm, lib_camera_PCB_THICKNESS],
+        shape: box(size: [8 mm, 8 mm, 3 mm]));
+    barrel = translate(offset: [9.1 mm, 12.5 mm, lib_camera_PCB_THICKNESS + 3 mm],
+        shape: cylinder(radius: 3.7 mm, height: 2.1 mm));
+    lens = translate(offset: [9.1 mm, 12.5 mm, lib_camera_PCB_THICKNESS + 5.1 mm],
+        shape: cylinder(radius: 2.8 mm, height: 0.1 mm));
+    return union(color(red: 34, green: 37, blue: 42, shape: union(base, barrel)),
+        color(red: 54, green: 115, blue: 153, shape: lens));
+}
+
+component lib_camera_camera_sensor_tail() -> Solid {
+    return color(red: 184, green: 112, blue: 48,
+        shape: translate(offset: [13.1 mm, 8.5 mm, lib_camera_PCB_THICKNESS],
+            shape: box(size: [9.8 mm, 8 mm, 0.8 mm])));
+}
+
+component lib_camera_camera_connector() -> Solid {
+    return color(red: 205, green: 209, blue: 212,
+        shape: translate(offset: [0 mm, 2.8 mm, -2.8 mm],
+            shape: box(size: [5.6 mm, 19.4 mm, 2.8 mm])));
+}
+
+component lib_camera_camera_ribbon() -> Solid {
+    return color(red: 225, green: 229, blue: 232,
+        shape: translate(offset: [-5 mm, 4.4 mm, -1.42 mm],
+            shape: box(size: [5 mm, 16.2 mm, 0.3 mm])));
+}
+
+component raspberry_pi_camera(hole_diameter: Length = lib_camera_MOUNT_DIAMETER) -> Solid {
+    return union(lib_camera_camera_pcb(hole_diameter: hole_diameter), lib_camera_camera_optics(),
+        lib_camera_camera_sensor_tail(), lib_camera_camera_connector(), lib_camera_camera_ribbon());
+}
+
+
+
+parameter lib_jetson_BOARD_LENGTH = 104 mm;
+
+parameter lib_jetson_BOARD_WIDTH = 90 mm;
+
+parameter lib_jetson_TOTAL_HEIGHT = 37 mm;
+
+parameter lib_jetson_PCB_THICKNESS = 1.6 mm;
+
+material lib_jetson_DisplayOnly {
+    density: 1000 kg/m3;
+    young: 1 GPa;
+    poisson: 0.3;
+    yield_strength: 10 MPa;
+}
+
+component lib_jetson_block(x: Length, y: Length, z: Length, width: Length, depth: Length, height: Length) -> Solid {
+    return translate(offset: [x, y, z], shape: box(size: [width, depth, height]));
+}
+
+component lib_jetson_round_post(x: Length, y: Length, z: Length, radius: Length, height: Length) -> Solid {
+    return translate(offset: [x, y, z], shape: cylinder(radius: radius, height: height));
+}
+
+component lib_jetson_port_shell(width: Length, height: Length) -> Solid {
+    shell = box(size: [width, 17 mm, height]);
+    opening = lib_jetson_block(1 mm, -1 mm, 1 mm, width - 2 mm, 17 mm, height - 2 mm);
+    return difference(shell, opening);
+}
+
+component lib_jetson_usb_stack() -> Solid {
+    divider = lib_jetson_block(1 mm, 0 mm, 7 mm, 13 mm, 16 mm, 0.8 mm);
+    return union(lib_jetson_port_shell(15 mm, 15 mm), divider);
+}
+
+component lib_jetson_fin(offset: Length) -> Solid {
+    return lib_jetson_block(33 mm + offset, 26 mm, 8 mm, 2 mm, 56 mm, lib_jetson_TOTAL_HEIGHT - 18 mm);
+}
+
+component lib_jetson_pin_pair(offset: Length) -> Solid {
+    first = lib_jetson_block(98 mm, 27 mm + offset, lib_jetson_PCB_THICKNESS + 2.5 mm, 0.8 mm, 0.8 mm, 5 mm);
+    second = lib_jetson_block(100.54 mm, 27 mm + offset, lib_jetson_PCB_THICKNESS + 2.5 mm, 0.8 mm, 0.8 mm, 5 mm);
+    return color(red: 202, green: 162, blue: 77, shape: union(first, second));
+}
+
+component lib_jetson_MainBoard() -> Solid {
+substrate = color(red: 27, green: 45, blue: 38,
+        shape: difference(box(size: [lib_jetson_BOARD_LENGTH, lib_jetson_BOARD_WIDTH, lib_jetson_PCB_THICKNESS]),
+            lib_jetson_round_post(4 mm, 4 mm, -1 mm, 1.5 mm, lib_jetson_PCB_THICKNESS + 2 mm),
+            lib_jetson_round_post(lib_jetson_BOARD_LENGTH - 4 mm, 4 mm, -1 mm, 1.5 mm, lib_jetson_PCB_THICKNESS + 2 mm),
+            lib_jetson_round_post(4 mm, lib_jetson_BOARD_WIDTH - 4 mm, -1 mm, 1.5 mm, lib_jetson_PCB_THICKNESS + 2 mm),
+            lib_jetson_round_post(lib_jetson_BOARD_LENGTH - 4 mm, lib_jetson_BOARD_WIDTH - 4 mm, -1 mm, 1.5 mm, lib_jetson_PCB_THICKNESS + 2 mm)));
+return compound(substrate);
+}
+
+component lib_jetson_Module() -> Solid {
+socket = color(28, 30, 32, lib_jetson_block(29 mm, 23 mm, lib_jetson_PCB_THICKNESS, 67 mm, 61 mm, 2.4 mm));
+substrate = color(36, 82, 52, lib_jetson_block(27 mm, 22 mm, 4 mm, 71 mm, 64 mm, 1.6 mm));
+return compound(socket, substrate);
+}
+
+component lib_jetson_Heatsink() -> Solid {
+metal = color(62, 66, 71, union(
+        lib_jetson_block(32 mm, 26 mm, 5.6 mm, 62 mm, 56 mm, 2.4 mm),
+        lib_jetson_fin(0 mm), lib_jetson_fin(5 mm), lib_jetson_fin(10 mm), lib_jetson_fin(15 mm), lib_jetson_fin(20 mm), lib_jetson_fin(25 mm),
+        lib_jetson_fin(30 mm), lib_jetson_fin(35 mm), lib_jetson_fin(40 mm), lib_jetson_fin(45 mm), lib_jetson_fin(50 mm), lib_jetson_fin(55 mm)));
+return compound(metal);
+}
+
+component lib_jetson_Fan() -> Solid {
+frame = color(26, 29, 33, difference(
+        lib_jetson_block(38 mm, 30 mm, lib_jetson_TOTAL_HEIGHT - 10 mm, 50 mm, 50 mm, 10 mm),
+        lib_jetson_round_post(63 mm, 55 mm, lib_jetson_TOTAL_HEIGHT - 11 mm, 21 mm, 12 mm),
+        lib_jetson_round_post(41 mm, 33 mm, lib_jetson_TOTAL_HEIGHT - 11 mm, 1.25 mm, 12 mm),
+        lib_jetson_round_post(85 mm, 33 mm, lib_jetson_TOTAL_HEIGHT - 11 mm, 1.25 mm, 12 mm),
+        lib_jetson_round_post(41 mm, 77 mm, lib_jetson_TOTAL_HEIGHT - 11 mm, 1.25 mm, 12 mm),
+        lib_jetson_round_post(85 mm, 77 mm, lib_jetson_TOTAL_HEIGHT - 11 mm, 1.25 mm, 12 mm)));
+rotor = color(47, 51, 55, union(
+        lib_jetson_round_post(63 mm, 55 mm, lib_jetson_TOTAL_HEIGHT - 5 mm, 8 mm, 5 mm),
+        lib_jetson_block(42 mm, 52 mm, lib_jetson_TOTAL_HEIGHT - 4 mm, 42 mm, 6 mm, 1.5 mm),
+        lib_jetson_block(60 mm, 34 mm, lib_jetson_TOTAL_HEIGHT - 4 mm, 6 mm, 42 mm, 1.5 mm)));
+return compound(frame, rotor);
+}
+
+component lib_jetson_Connectors() -> Solid {
+ethernet = color(163, 172, 181, translate([6 mm, 0 mm, lib_jetson_PCB_THICKNESS], lib_jetson_port_shell(16 mm, 16 mm)));
+usb_first = color(181, 188, 196, translate([26 mm, 0 mm, lib_jetson_PCB_THICKNESS], lib_jetson_usb_stack()));
+usb_second = color(181, 188, 196, translate([45 mm, 0 mm, lib_jetson_PCB_THICKNESS], lib_jetson_usb_stack()));
+video = color(163, 172, 181, translate([65 mm, 0 mm, lib_jetson_PCB_THICKNESS], lib_jetson_port_shell(15 mm, 6 mm)));
+power = color(22, 24, 27, translate([85 mm, 0 mm, lib_jetson_PCB_THICKNESS], lib_jetson_port_shell(10 mm, 8 mm)));
+usb_tongue_one = color(25, 28, 31, lib_jetson_block(28 mm, 8 mm, lib_jetson_PCB_THICKNESS + 3 mm, 11 mm, 7 mm, 1 mm));
+usb_tongue_two = color(25, 28, 31, lib_jetson_block(28 mm, 8 mm, lib_jetson_PCB_THICKNESS + 11 mm, 11 mm, 7 mm, 1 mm));
+usb_tongue_three = color(25, 28, 31, lib_jetson_block(47 mm, 8 mm, lib_jetson_PCB_THICKNESS + 3 mm, 11 mm, 7 mm, 1 mm));
+usb_tongue_four = color(25, 28, 31, lib_jetson_block(47 mm, 8 mm, lib_jetson_PCB_THICKNESS + 11 mm, 11 mm, 7 mm, 1 mm));
+return compound(ethernet, usb_first, usb_second, video, power, usb_tongue_one, usb_tongue_two, usb_tongue_three, usb_tongue_four);
+}
+
+component lib_jetson_Header() -> Solid {
+base = color(20, 23, 27, lib_jetson_block(97 mm, 26 mm, lib_jetson_PCB_THICKNESS, 6 mm, 51 mm, 2.5 mm));
+row01 = lib_jetson_pin_pair(0 mm);
+row02 = lib_jetson_pin_pair(2.54 mm);
+row03 = lib_jetson_pin_pair(5.08 mm);
+row04 = lib_jetson_pin_pair(7.62 mm);
+row05 = lib_jetson_pin_pair(10.16 mm);
+row06 = lib_jetson_pin_pair(12.7 mm);
+row07 = lib_jetson_pin_pair(15.24 mm);
+row08 = lib_jetson_pin_pair(17.78 mm);
+row09 = lib_jetson_pin_pair(20.32 mm);
+row10 = lib_jetson_pin_pair(22.86 mm);
+row11 = lib_jetson_pin_pair(25.4 mm);
+row12 = lib_jetson_pin_pair(27.94 mm);
+row13 = lib_jetson_pin_pair(30.48 mm);
+row14 = lib_jetson_pin_pair(33.02 mm);
+row15 = lib_jetson_pin_pair(35.56 mm);
+row16 = lib_jetson_pin_pair(38.1 mm);
+row17 = lib_jetson_pin_pair(40.64 mm);
+row18 = lib_jetson_pin_pair(43.18 mm);
+row19 = lib_jetson_pin_pair(45.72 mm);
+row20 = lib_jetson_pin_pair(48.26 mm);
+return compound(base, row01, row02, row03, row04, row05, row06, row07, row08, row09, row10, row11, row12, row13, row14, row15, row16, row17, row18, row19, row20);
+}
+
+component lib_jetson_BoardDetails() -> Solid {
+chip_one = color(28, 31, 35, lib_jetson_block(7 mm, 30 mm, lib_jetson_PCB_THICKNESS, 13 mm, 11 mm, 2 mm));
+chip_two = color(28, 31, 35, lib_jetson_block(8 mm, 52 mm, lib_jetson_PCB_THICKNESS, 10 mm, 15 mm, 2 mm));
+ribbon_socket = color(204, 201, 188, lib_jetson_block(5 mm, 74 mm, lib_jetson_PCB_THICKNESS, 18 mm, 4 mm, 3 mm));
+capacitor_one = color(140, 148, 157, lib_jetson_round_post(17 mm, 23 mm, lib_jetson_PCB_THICKNESS, 2 mm, 5 mm));
+capacitor_two = color(140, 148, 157, lib_jetson_round_post(22 mm, 23 mm, lib_jetson_PCB_THICKNESS, 2 mm, 5 mm));
+return compound(chip_one, chip_two, ribbon_socket, capacitor_one, capacitor_two);
+}
+
+component jetson_nano_super() -> Solid { return compound(lib_jetson_MainBoard(), lib_jetson_Module(), lib_jetson_Heatsink(), lib_jetson_Fan(), lib_jetson_Connectors(), lib_jetson_Header(), lib_jetson_BoardDetails()); }
+
+
+parameter lib_battery_PACK_DIAMETER = 18 mm;
+
+parameter lib_battery_PACK_LENGTH = 68 mm;
+
+parameter lib_battery_WIRE_LENGTH = 20 mm;
+
+parameter lib_battery_WIRE_DIAMETER = 1.4 mm;
+
+parameter lib_battery_WIRE_SPACING = 3 mm;
+
+parameter lib_battery_CONNECTOR_WIDTH = 6 mm;
+
+parameter lib_battery_CONNECTOR_DEPTH = 4 mm;
+
+parameter lib_battery_CONNECTOR_LENGTH = 10 mm;
+
+material lib_battery_DisplayOnly {
+    density: 1200 kg/m3;
+    young: 3 GPa;
+    poisson: 0.35;
+    yield_strength: 40 MPa;
+}
+
+component lib_battery_battery_body(diameter: Length = lib_battery_PACK_DIAMETER, length: Length = lib_battery_PACK_LENGTH) -> Solid {
+    sleeve = translate(offset: [0 mm, 0 mm, 0.2 mm],
+        shape: cylinder(radius: diameter / 2, height: length - 0.4 mm));
+    cap = cylinder(radius: diameter / 2, height: 0.2 mm);
+    return compound(color(red: 245, green: 207, blue: 35, shape: sleeve),
+        color(red: 212, green: 171, blue: 25, shape: cap),
+        color(red: 212, green: 171, blue: 25,
+            shape: translate(offset: [0 mm, 0 mm, length - 0.2 mm], shape: cap)));
+}
+
+component lib_battery_battery_connector(width: Length = lib_battery_CONNECTOR_WIDTH,
+    depth: Length = lib_battery_CONNECTOR_DEPTH, length: Length = lib_battery_CONNECTOR_LENGTH) -> Solid {
+    housing = translate(offset: [-width / 2, -depth / 2, 0 mm],
+        shape: box(size: [width, depth, length]));
+    socket = box(size: [width / 5, depth / 3, length / 2]);
+    return color(red: 190, green: 35, blue: 40, shape: difference(housing,
+        translate(offset: [-width / 4 - width / 10, -depth / 6, length * 0.6], shape: socket),
+        translate(offset: [width / 4 - width / 10, -depth / 6, length * 0.6], shape: socket)));
+}
+
+component li_ion_battery(diameter: Length = lib_battery_PACK_DIAMETER,
+    length: Length = lib_battery_PACK_LENGTH, wire_length: Length = lib_battery_WIRE_LENGTH,
+    wire_diameter: Length = lib_battery_WIRE_DIAMETER, wire_spacing: Length = lib_battery_WIRE_SPACING,
+    connector_width: Length = lib_battery_CONNECTOR_WIDTH, connector_depth: Length = lib_battery_CONNECTOR_DEPTH,
+    connector_length: Length = lib_battery_CONNECTOR_LENGTH) -> Solid {
+    wire = cylinder(radius: wire_diameter / 2, height: wire_length);
+    return compound(lib_battery_battery_body(diameter: diameter, length: length),
+        color(red: 203, green: 38, blue: 40,
+            shape: translate(offset: [-wire_spacing / 2, 0 mm, length], shape: wire)),
+        color(red: 28, green: 29, blue: 32,
+            shape: translate(offset: [wire_spacing / 2, 0 mm, length], shape: wire)),
+        translate(offset: [0 mm, 0 mm, length + wire_length],
+            shape: lib_battery_battery_connector(width: connector_width,
+                depth: connector_depth, length: connector_length)));
+}
+
+
+
+
+// Anchor at the output shaft face (5.9, 5.9, 29.9), not the housing corner.
+// Rotation orients the whole servo. It does not actuate the shaft.
+component pitch_servo(x: Length, z: Length, turn: Angle) -> Solid {
+    return translate(offset: [x, 0 mm, z],
+        shape: rotate(x: 0 deg, y: turn, z: 0 deg,
+            shape: translate(offset: [-5.9 mm, -5.9 mm, -29.9 mm], shape: servo())));
+}
+component roll_servo(x: Length, z: Length) -> Solid {
+    return translate(offset: [x, -20 mm, z],
+        shape: rotate(x: 90 deg, y: 0 deg, z: 0 deg,
+            shape: translate(offset: [-5.9 mm, -5.9 mm, -29.9 mm], shape: servo())));
+}
+
+// Both sides share dimensions; pitched output axes point outwards (+/- X).
+part LeftHipRoll {
+    material: lib_servo_ServoPlastic;
+    body = roll_servo(x: LEG_SPACING / 2, z: HIP_ROLL_Z);
+}
+
+part LeftHipPitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: LEG_SPACING / 2, z: HIP_PITCH_Z, turn: 90 deg);
+}
+
+part LeftKneePitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: LEG_SPACING / 2, z: KNEE_Z, turn: 90 deg);
+}
+
+part LeftAnklePitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: LEG_SPACING / 2, z: ANKLE_PITCH_Z, turn: 90 deg);
+}
+
+part LeftAnkleRoll {
+    material: lib_servo_ServoPlastic;
+    body = roll_servo(x: LEG_SPACING / 2, z: ANKLE_ROLL_Z);
+}
+
+part LeftShoulderPitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: SHOULDER_SPACING / 2, z: SHOULDER_Z, turn: 90 deg);
+}
+
+part LeftElbowPitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: SHOULDER_SPACING / 2, z: ELBOW_Z, turn: 90 deg);
+}
+
+part RightHipRoll {
+    material: lib_servo_ServoPlastic;
+    body = roll_servo(x: -LEG_SPACING / 2, z: HIP_ROLL_Z);
+}
+
+part RightHipPitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: -LEG_SPACING / 2, z: HIP_PITCH_Z, turn: -90 deg);
+}
+
+part RightKneePitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: -LEG_SPACING / 2, z: KNEE_Z, turn: -90 deg);
+}
+
+part RightAnklePitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: -LEG_SPACING / 2, z: ANKLE_PITCH_Z, turn: -90 deg);
+}
+
+part RightAnkleRoll {
+    material: lib_servo_ServoPlastic;
+    body = roll_servo(x: -LEG_SPACING / 2, z: ANKLE_ROLL_Z);
+}
+
+part RightShoulderPitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: -SHOULDER_SPACING / 2, z: SHOULDER_Z, turn: -90 deg);
+}
+
+part RightElbowPitch {
+    material: lib_servo_ServoPlastic;
+    body = pitch_servo(x: -SHOULDER_SPACING / 2, z: ELBOW_Z, turn: -90 deg);
+}
+
+// Vertical torso board: 104 mm across X, 90 mm high, cooling toward front.
+part TorsoBoard {
+    material: lib_jetson_DisplayOnly;
+    body = translate(offset: [-52 mm, 22 mm, TORSO_BASE_Z],
+        shape: rotate(x: 90 deg, y: 0 deg, z: 0 deg, shape: jetson_nano_super()));
+}
+
+// Horizontal pack near the pelvis. Cable/connector remain straight estimates.
+part PelvisBattery {
+    material: lib_battery_DisplayOnly;
+    body = translate(offset: [-34 mm, BATTERY_REAR_OFFSET, BATTERY_Z],
+        shape: rotate(x: 0 deg, y: 90 deg, z: 0 deg, shape: li_ion_battery()));
+}
+
+// Optical centre at X=0, Z=HEAD_Z; the lens looks forward along -Y.
+part HeadCamera {
+    material: lib_camera_DisplayOnly;
+    body = translate(offset: [0 mm, -5 mm, HEAD_Z],
+        shape: rotate(x: 90 deg, y: 0 deg, z: 0 deg,
+            shape: translate(offset: [-9.1 mm, -12.5 mm, 0 mm], shape: raspberry_pi_camera())));
+}

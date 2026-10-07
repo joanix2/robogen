@@ -114,7 +114,10 @@ mod tests {
                     position: [0., 1., 0.],
                 },
             ],
-            triangles: vec![Triangle { indices: [0, 1, 2] }],
+            triangles: vec![Triangle {
+                indices: [0, 1, 2],
+                color: None,
+            }],
         };
         let mut bytes = Vec::new();
         write_binary_stl(&mesh, &mut bytes)?;

@@ -55,3 +55,55 @@ STEP, B-Rep, stable Boolean face naming and general manufacturing certification
 remain unavailable. Input complexity and intermediate polygon costs must be
 bounded before calling the backend; unwinding backend panics become CadError,
 not fabricated geometry. Fatal allocation failures/abort are not unwindable.
+
+## Servo delivery contract (2026-10-07)
+
+`color(red: Scalar, green: Scalar, blue: Scalar, shape: Solid)` decorates a
+solid with opaque RGB bytes (integer channels 0..255). A nested explicit color
+takes precedence over an enclosing color. Boolean surfaces retain the color
+of their originating operand; an enclosing color fills uncolored cut faces.
+IR stores a Color node, the private CSG adapter carries span/color metadata,
+CAD triangles carry optional RGB bytes, and the renderer receives its own
+optional face colors. Materials retain their physical meaning. Neither egui
+nor backend color types enter IR. Older serialized triangles default to no
+color. STL ignores appearance. No stable face identity is claimed.
+
+The csgrs 0.15 general transform path misorients normals under translation;
+the adapter uses Polygon::translate instead. Its BSP produces T-junctions:
+the mesh adapter welds positions on a 1 nm grid and conforms triangle edges
+before publication. This is tessellation repair, not a new Boolean engine.
+The board fixture exposed premature f32 rounding at roughly 100 mm coordinates:
+welding and edge conformance now use backend f64 coordinates; f32 is only the
+published mesh representation. The 1 nm matching tolerance is not increased.
+Budgets remain finite: 128 nodes, 1024 primitive polygons, 4096 intermediate
+polygons, 16384 polygon vertices and 2097152 cumulative Boolean polygon pairs.
+
+The servo is an authorized supplementary slice, not completion of M1 or M3.
+Desktop compilation must run outside the UI thread; only a matching document
+revision may publish results. Synchronous APIs remain for CLI and tests.
+
+## Library instances and compounds (2026-10-07)
+
+The left-hand Taxonomy view projects actual parts/features from the last
+successfully compiled document, with an explicit stale state during errors or
+pending builds. The Library below lists reusable DSL generators, not instances.
+Built-in definitions are copied into the document by an undoable source command;
+the persisted source remains independently executable by CLI. No hidden Rust
+geometry factory or external import resolver is introduced.
+
+The assistant stays on the right. Library insertion keeps existing source,
+uses token-aware renaming of bundled helper declarations, and rejects name
+collisions. A later insertion reuses the document's function definition and
+an existing instance's material. New instances are offset along X to avoid
+overlap; position and arguments remain editable in the DSL. The old UI
+`set_taxonomy` injection API is removed: arbitrary entries cannot replace
+the compiled instance projection. Domain classification types remain available.
+
+`compound(...)` explicitly groups separate solids without a Boolean union.
+It permits the existing multi-body board model to be returned by one component.
+The neutral IR gains a Compound node. The CAD adapter concatenates evaluated
+children, with cooperative cancellation, bounded aggregate size and depth.
+Color and translation may wrap a compound. A compound inside a Boolean operand
+is rejected with a diagnostic; it is never silently treated as a fused solid.
+The existing Boolean budgets and semantics are unchanged. STL preserves the
+separate shells, not assembly constraints or physical material assignments.

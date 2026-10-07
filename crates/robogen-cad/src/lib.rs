@@ -17,6 +17,8 @@ pub struct Vertex {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Triangle {
     pub indices: [u32; 3],
+    #[serde(default)]
+    pub color: Option<[u8; 3]>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -32,6 +34,7 @@ impl Mesh {
         self.triangles
             .extend(other.triangles.iter().map(|triangle| Triangle {
                 indices: triangle.indices.map(|index| index + offset),
+                color: triangle.color,
             }));
     }
 }
@@ -52,6 +55,8 @@ pub enum FaceRole {
 
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum CadError {
+    #[error("CAD build cancelled")]
+    Cancelled,
     #[error("sketch `{0}` has no supported closed profile")]
     EmptyProfile(String),
     #[error("extrusion depth must be positive")]
@@ -65,7 +70,10 @@ pub enum CadError {
     #[error("invalid solid geometry: {reason}")]
     InvalidSolid { span: SourceSpan, reason: String },
     #[error("solid geometry exceeds the {limit} limit")]
-    SolidLimit { span: SourceSpan, limit: &'static str },
+    SolidLimit {
+        span: SourceSpan,
+        limit: &'static str,
+    },
     #[error("mesh CSG backend failed")]
     SolidBackendFailure { span: SourceSpan },
 }
@@ -74,7 +82,20 @@ pub trait CadKernel: Send + Sync {
     fn extrude(&self, sketch: &Sketch, depth: Length) -> Result<Mesh, CadError>;
 
     fn solid(&self, geometry: &SolidGeometry) -> Result<Mesh, CadError> {
-        Err(CadError::SolidUnavailable { span: geometry.span })
+        Err(CadError::SolidUnavailable {
+            span: geometry.span,
+        })
+    }
+
+    fn solid_cancellable(
+        &self,
+        geometry: &SolidGeometry,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Mesh, CadError> {
+        if cancelled() {
+            return Err(CadError::Cancelled);
+        }
+        self.solid(geometry)
     }
 }
 
@@ -82,6 +103,14 @@ pub trait CadKernel: Send + Sync {
 pub struct NativeCadKernel;
 
 impl CadKernel for NativeCadKernel {
+    fn solid_cancellable(
+        &self,
+        geometry: &SolidGeometry,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Mesh, CadError> {
+        mesh_csg::build_cancellable(geometry, cancelled)
+    }
+
     fn solid(&self, geometry: &SolidGeometry) -> Result<Mesh, CadError> {
         mesh_csg::build(geometry)
     }
@@ -139,7 +168,10 @@ impl CadKernel for NativeCadKernel {
             vertices,
             triangles: faces
                 .into_iter()
-                .map(|indices| Triangle { indices })
+                .map(|indices| Triangle {
+                    indices,
+                    color: None,
+                })
                 .collect(),
         })
     }
@@ -150,8 +182,20 @@ pub fn build_part_mesh(
     part: &Part,
     kernel: &dyn CadKernel,
 ) -> Result<Mesh, CadError> {
+    build_part_mesh_cancellable(model, part, kernel, &|| false)
+}
+
+pub fn build_part_mesh_cancellable(
+    model: &SemanticModel,
+    part: &Part,
+    kernel: &dyn CadKernel,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Mesh, CadError> {
     let mut result = Mesh::default();
     for feature in &part.features {
+        if cancelled() {
+            return Err(CadError::Cancelled);
+        }
         match feature {
             Feature::Extrude { sketch, depth, .. } => {
                 let sketch = model
@@ -161,7 +205,9 @@ pub fn build_part_mesh(
                     .ok_or(CadError::MissingSketch)?;
                 result.append(&kernel.extrude(sketch, *depth)?);
             }
-            Feature::Solid { geometry, .. } => result.append(&kernel.solid(geometry)?),
+            Feature::Solid { geometry, .. } => {
+                result.append(&kernel.solid_cancellable(geometry, cancelled)?)
+            }
         }
     }
     if result.triangles.is_empty() {

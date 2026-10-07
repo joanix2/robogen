@@ -1,6 +1,11 @@
 //! Project loading and incremental orchestration for the shared model pipeline.
 
-use robogen_cad::{build_part_mesh, Mesh, NativeCadKernel};
+mod compilation;
+mod library;
+pub use library::{FunctionDefinition, LibraryGenerator, TaxonomyFeature, TaxonomyInstance};
+
+use compilation::CompilationWorker;
+use robogen_cad::{build_part_mesh, build_part_mesh_cancellable, Mesh, NativeCadKernel};
 use robogen_constraints::{ConstraintSolver, NativeConstraintSolver};
 use robogen_domain::{Diagnostic, PartId, Quantity, Severity, SourceSpan};
 use robogen_dsl::{Declaration, Expr, ExprKind, Module};
@@ -106,6 +111,8 @@ pub struct SourceDocument {
     is_valid: bool,
     undo: VecDeque<String>,
     redo: Vec<String>,
+    worker: Option<CompilationWorker>,
+    building: bool,
 }
 
 impl SourceDocument {
@@ -120,6 +127,8 @@ impl SourceDocument {
             is_valid: false,
             undo: VecDeque::new(),
             redo: Vec::new(),
+            worker: None,
+            building: false,
         };
         document.refresh();
         document
@@ -127,6 +136,43 @@ impl SourceDocument {
 
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    pub fn enable_background_compilation(&mut self) -> std::io::Result<()> {
+        if self.worker.is_none() {
+            self.worker = Some(CompilationWorker::new()?);
+        }
+        Ok(())
+    }
+
+    pub fn build_progress(&self) -> Option<(usize, usize)> {
+        self.worker
+            .as_ref()
+            .filter(|_| self.building)
+            .map(CompilationWorker::progress)
+    }
+
+    pub fn cancel_build(&mut self) {
+        if !self.building {
+            return;
+        }
+        if let Some(worker) = &self.worker {
+            worker.cancel();
+        }
+        self.building = false;
+        self.diagnostics = vec![Diagnostic::error(
+            "E321",
+            "CAD build cancelled",
+            SourceSpan::default(),
+        )];
+    }
+
+    pub fn poll_compilation(&mut self) -> bool {
+        let Some(result) = self.worker.as_ref().and_then(CompilationWorker::poll) else {
+            return false;
+        };
+        self.accept_result(result);
+        true
     }
 
     /// Last successfully built project, possibly stale when `is_valid()` is false.
@@ -193,7 +239,25 @@ impl SourceDocument {
     }
 
     fn refresh(&mut self) {
-        match Project::from_source(self.source.clone()) {
+        if let Some(worker) = &self.worker {
+            self.is_valid = false;
+            self.diagnostics.clear();
+            self.building = worker.submit(self.source.clone());
+            if !self.building {
+                self.diagnostics.push(Diagnostic::error(
+                    "E321",
+                    "CAD worker unavailable",
+                    SourceSpan::default(),
+                ));
+            }
+        } else {
+            self.accept_result(Project::from_source(self.source.clone()));
+        }
+    }
+
+    fn accept_result(&mut self, result: Result<Project, Vec<Diagnostic>>) {
+        self.building = false;
+        match result {
             Ok(project) => {
                 self.project = Some(project);
                 self.diagnostics.clear();
@@ -209,7 +273,14 @@ impl SourceDocument {
 
 impl Project {
     pub fn from_source(source: impl Into<String>) -> Result<Self, Vec<Diagnostic>> {
-        let source = source.into();
+        Self::from_source_controlled(source.into(), &|| false, &|_, _| {})
+    }
+
+    fn from_source_controlled(
+        source: String,
+        cancelled: &dyn Fn() -> bool,
+        progress: &dyn Fn(usize, usize),
+    ) -> Result<Self, Vec<Diagnostic>> {
         let parsed = robogen_dsl::parse(&source);
         let mut diagnostics = parsed.diagnostics;
         let Some(ast) = parsed.module else {
@@ -225,7 +296,7 @@ impl Project {
             return Err(diagnostics);
         }
         solve_constraints(&mut model, &mut diagnostics);
-        let meshes = build_all_meshes(&model, &mut diagnostics);
+        let meshes = build_all_meshes(&model, &mut diagnostics, cancelled, progress);
         if diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -348,10 +419,13 @@ fn solve_constraints(model: &mut SemanticModel, diagnostics: &mut Vec<Diagnostic
 fn build_all_meshes(
     model: &SemanticModel,
     diagnostics: &mut Vec<Diagnostic>,
+    cancelled: &dyn Fn() -> bool,
+    progress: &dyn Fn(usize, usize),
 ) -> BTreeMap<PartId, Mesh> {
     let mut meshes = BTreeMap::new();
-    for part in model.parts.values() {
-        match build_part_mesh(model, part, &NativeCadKernel) {
+    progress(0, model.parts.len());
+    for (index, part) in model.parts.values().enumerate() {
+        match build_part_mesh_cancellable(model, part, &NativeCadKernel, cancelled) {
             Ok(mesh) => {
                 meshes.insert(part.id, mesh);
             }
@@ -360,6 +434,10 @@ fn build_all_meshes(
                 error.to_string(),
                 part.source_span,
             )),
+        }
+        progress(index + 1, model.parts.len());
+        if cancelled() {
+            break;
         }
     }
     meshes
@@ -410,7 +488,10 @@ fn dependencies_for<'a>(
             let dependencies: BTreeSet<_> = sketches.union(&parameters).copied().collect();
             let depends = part.features.iter().any(|feature| {
                 (!parameters.is_empty() && feature.operation != "extrude")
-                    || feature.args.iter().any(|expression| references_any(expression, &dependencies))
+                    || feature
+                        .args
+                        .iter()
+                        .any(|expression| references_any(expression, &dependencies))
             });
             if depends {
                 dirty.insert(DirtyNode::Part(part.name.clone()));
@@ -430,7 +511,9 @@ fn references_any(expression: &Expr, names: &BTreeSet<&str>) -> bool {
                 pending.push(right);
             }
             ExprKind::Unary { value, .. } | ExprKind::Named { value, .. } => pending.push(value),
-            ExprKind::Vector(values) | ExprKind::Call { args: values, .. } => pending.extend(values),
+            ExprKind::Vector(values) | ExprKind::Call { args: values, .. } => {
+                pending.extend(values)
+            }
             _ => {}
         }
     }
@@ -671,16 +754,26 @@ part Body { material: PLA; base = extrude(Profile, DEPTH); }"#;
 
     #[test]
     fn arithmetic_parameter_dependencies_invalidate_extrusions() -> Result<(), Vec<Diagnostic>> {
-        let source = SOURCE.replace("parameter DEPTH = 4 mm;", "parameter DEPTH = WIDTH/10;")
+        let source = SOURCE
+            .replace("parameter DEPTH = 4 mm;", "parameter DEPTH = WIDTH/10;")
             .replace("extrude(Profile, DEPTH)", "extrude(Profile, DEPTH*2)");
         let mut project = Project::from_source(source)?;
-        project.set_parameter("WIDTH", Quantity::Length(Length::from_millimetres(80.0)))
+        project
+            .set_parameter("WIDTH", Quantity::Length(Length::from_millimetres(80.0)))
             .map_err(|diagnostic| vec![diagnostic])?;
         let report = project.rebuild()?;
-        assert!(report.rebuilt.contains(&DirtyNode::Parameter("DEPTH".into())));
+        assert!(report
+            .rebuilt
+            .contains(&DirtyNode::Parameter("DEPTH".into())));
         assert!(report.rebuilt.contains(&DirtyNode::Part("Body".into())));
-        let robogen_ir::Feature::Extrude { depth, .. } = project.snapshot().model.parts["Body"].features[0] else {
-            return Err(vec![Diagnostic::error("test", "expected extrusion", SourceSpan::default())]);
+        let robogen_ir::Feature::Extrude { depth, .. } =
+            project.snapshot().model.parts["Body"].features[0]
+        else {
+            return Err(vec![Diagnostic::error(
+                "test",
+                "expected extrusion",
+                SourceSpan::default(),
+            )]);
         };
         assert_eq!(depth, Length::from_millimetres(16.0));
         Ok(())

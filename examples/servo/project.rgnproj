@@ -1,0 +1,3 @@
+schema_version = 1
+name = "Parametric servo"
+source = "main.rgn"

@@ -1,0 +1,3 @@
+schema_version = 1
+name = "Compute board - visual envelope"
+source = "main.rgn"

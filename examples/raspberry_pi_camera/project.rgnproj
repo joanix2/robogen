@@ -1,0 +1,3 @@
+schema_version = 1
+name = "Raspberry Pi camera module (2013)"
+source = "main.rgn"

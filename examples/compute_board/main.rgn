@@ -1,0 +1,128 @@
+module compute_board_demo;
+
+parameter BOARD_LENGTH = 104 mm;
+parameter BOARD_WIDTH = 90 mm;
+parameter TOTAL_HEIGHT = 37 mm;
+parameter PCB_THICKNESS = 1.6 mm;
+
+material DisplayOnly {
+    density: 1000 kg/m3;
+    young: 1 GPa;
+    poisson: 0.3;
+    yield_strength: 10 MPa;
+}
+
+component block(x: Length, y: Length, z: Length, width: Length, depth: Length, height: Length) -> Solid {
+    return translate(offset: [x, y, z], shape: box(size: [width, depth, height]));
+}
+
+component round_post(x: Length, y: Length, z: Length, radius: Length, height: Length) -> Solid {
+    return translate(offset: [x, y, z], shape: cylinder(radius: radius, height: height));
+}
+
+component port_shell(width: Length, height: Length) -> Solid {
+    shell = box(size: [width, 17 mm, height]);
+    opening = block(1 mm, -1 mm, 1 mm, width - 2 mm, 17 mm, height - 2 mm);
+    return difference(shell, opening);
+}
+
+component usb_stack() -> Solid {
+    divider = block(1 mm, 0 mm, 7 mm, 13 mm, 16 mm, 0.8 mm);
+    return union(port_shell(15 mm, 15 mm), divider);
+}
+
+component fin(offset: Length) -> Solid {
+    return block(33 mm + offset, 26 mm, 8 mm, 2 mm, 56 mm, TOTAL_HEIGHT - 18 mm);
+}
+
+component pin_pair(offset: Length) -> Solid {
+    first = block(98 mm, 27 mm + offset, PCB_THICKNESS + 2.5 mm, 0.8 mm, 0.8 mm, 5 mm);
+    second = block(100.54 mm, 27 mm + offset, PCB_THICKNESS + 2.5 mm, 0.8 mm, 0.8 mm, 5 mm);
+    return color(red: 202, green: 162, blue: 77, shape: union(first, second));
+}
+
+part MainBoard {
+    material: DisplayOnly;
+    substrate = color(red: 27, green: 45, blue: 38,
+        shape: difference(box(size: [BOARD_LENGTH, BOARD_WIDTH, PCB_THICKNESS]),
+            round_post(4 mm, 4 mm, -1 mm, 1.5 mm, PCB_THICKNESS + 2 mm),
+            round_post(BOARD_LENGTH - 4 mm, 4 mm, -1 mm, 1.5 mm, PCB_THICKNESS + 2 mm),
+            round_post(4 mm, BOARD_WIDTH - 4 mm, -1 mm, 1.5 mm, PCB_THICKNESS + 2 mm),
+            round_post(BOARD_LENGTH - 4 mm, BOARD_WIDTH - 4 mm, -1 mm, 1.5 mm, PCB_THICKNESS + 2 mm)));
+}
+
+part Module {
+    material: DisplayOnly;
+    socket = color(28, 30, 32, block(29 mm, 23 mm, PCB_THICKNESS, 67 mm, 61 mm, 2.4 mm));
+    substrate = color(36, 82, 52, block(27 mm, 22 mm, 4 mm, 71 mm, 64 mm, 1.6 mm));
+}
+
+part Heatsink {
+    material: DisplayOnly;
+    metal = color(62, 66, 71, union(
+        block(32 mm, 26 mm, 5.6 mm, 62 mm, 56 mm, 2.4 mm),
+        fin(0 mm), fin(5 mm), fin(10 mm), fin(15 mm), fin(20 mm), fin(25 mm),
+        fin(30 mm), fin(35 mm), fin(40 mm), fin(45 mm), fin(50 mm), fin(55 mm)));
+}
+
+part Fan {
+    material: DisplayOnly;
+    frame = color(26, 29, 33, difference(
+        block(38 mm, 30 mm, TOTAL_HEIGHT - 10 mm, 50 mm, 50 mm, 10 mm),
+        round_post(63 mm, 55 mm, TOTAL_HEIGHT - 11 mm, 21 mm, 12 mm),
+        round_post(41 mm, 33 mm, TOTAL_HEIGHT - 11 mm, 1.25 mm, 12 mm),
+        round_post(85 mm, 33 mm, TOTAL_HEIGHT - 11 mm, 1.25 mm, 12 mm),
+        round_post(41 mm, 77 mm, TOTAL_HEIGHT - 11 mm, 1.25 mm, 12 mm),
+        round_post(85 mm, 77 mm, TOTAL_HEIGHT - 11 mm, 1.25 mm, 12 mm)));
+    rotor = color(47, 51, 55, union(
+        round_post(63 mm, 55 mm, TOTAL_HEIGHT - 5 mm, 8 mm, 5 mm),
+        block(42 mm, 52 mm, TOTAL_HEIGHT - 4 mm, 42 mm, 6 mm, 1.5 mm),
+        block(60 mm, 34 mm, TOTAL_HEIGHT - 4 mm, 6 mm, 42 mm, 1.5 mm)));
+}
+
+part Connectors {
+    material: DisplayOnly;
+    ethernet = color(163, 172, 181, translate([6 mm, 0 mm, PCB_THICKNESS], port_shell(16 mm, 16 mm)));
+    usb_first = color(181, 188, 196, translate([26 mm, 0 mm, PCB_THICKNESS], usb_stack()));
+    usb_second = color(181, 188, 196, translate([45 mm, 0 mm, PCB_THICKNESS], usb_stack()));
+    video = color(163, 172, 181, translate([65 mm, 0 mm, PCB_THICKNESS], port_shell(15 mm, 6 mm)));
+    power = color(22, 24, 27, translate([85 mm, 0 mm, PCB_THICKNESS], port_shell(10 mm, 8 mm)));
+    usb_tongue_one = color(25, 28, 31, block(28 mm, 8 mm, PCB_THICKNESS + 3 mm, 11 mm, 7 mm, 1 mm));
+    usb_tongue_two = color(25, 28, 31, block(28 mm, 8 mm, PCB_THICKNESS + 11 mm, 11 mm, 7 mm, 1 mm));
+    usb_tongue_three = color(25, 28, 31, block(47 mm, 8 mm, PCB_THICKNESS + 3 mm, 11 mm, 7 mm, 1 mm));
+    usb_tongue_four = color(25, 28, 31, block(47 mm, 8 mm, PCB_THICKNESS + 11 mm, 11 mm, 7 mm, 1 mm));
+}
+
+part Header {
+    material: DisplayOnly;
+    base = color(20, 23, 27, block(97 mm, 26 mm, PCB_THICKNESS, 6 mm, 51 mm, 2.5 mm));
+    row01 = pin_pair(0 mm);
+    row02 = pin_pair(2.54 mm);
+    row03 = pin_pair(5.08 mm);
+    row04 = pin_pair(7.62 mm);
+    row05 = pin_pair(10.16 mm);
+    row06 = pin_pair(12.7 mm);
+    row07 = pin_pair(15.24 mm);
+    row08 = pin_pair(17.78 mm);
+    row09 = pin_pair(20.32 mm);
+    row10 = pin_pair(22.86 mm);
+    row11 = pin_pair(25.4 mm);
+    row12 = pin_pair(27.94 mm);
+    row13 = pin_pair(30.48 mm);
+    row14 = pin_pair(33.02 mm);
+    row15 = pin_pair(35.56 mm);
+    row16 = pin_pair(38.1 mm);
+    row17 = pin_pair(40.64 mm);
+    row18 = pin_pair(43.18 mm);
+    row19 = pin_pair(45.72 mm);
+    row20 = pin_pair(48.26 mm);
+}
+
+part BoardDetails {
+    material: DisplayOnly;
+    chip_one = color(28, 31, 35, block(7 mm, 30 mm, PCB_THICKNESS, 13 mm, 11 mm, 2 mm));
+    chip_two = color(28, 31, 35, block(8 mm, 52 mm, PCB_THICKNESS, 10 mm, 15 mm, 2 mm));
+    ribbon_socket = color(204, 201, 188, block(5 mm, 74 mm, PCB_THICKNESS, 18 mm, 4 mm, 3 mm));
+    capacitor_one = color(140, 148, 157, round_post(17 mm, 23 mm, PCB_THICKNESS, 2 mm, 5 mm));
+    capacitor_two = color(140, 148, 157, round_post(22 mm, 23 mm, PCB_THICKNESS, 2 mm, 5 mm));
+}
