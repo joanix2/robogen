@@ -337,3 +337,80 @@ par la demande de continuation. M7 global, desktop et ticket 15 restent ouverts,
 E330 reste actif, aucun push ni changement de lane.
 
 ### user
+
+### user
+
+Objectif persistant : implemente ce systeme d'optimisation topologique.
+
+### agent
+
+## Iteration 5 - Preserver la matiere fonctionnelle et reanalyser le solide
+
+Relecture de l'etat reel au commit cfbd5a2 : contrat DSL et FEM/SIMP autonome
+existent deja ; ne pas les refaire. Le probleme verifie est la perte des
+interfaces et du chemin de charge lors du seuillage/reconstruction.
+
+Plan autorise dans la continuation M7 : ajouter les roles cellulaires explicites
+Design/Preserve/Void, imposer les valeurs physiques apres filtrage et adapter
+sensibilites/OC/budget ; conserver l'ancien cas sans regions comme contrat.
+Ajouter une reconstruction de frontiere voxel exacte pour la geometrie binaire,
+en gardant Surface Nets comme vue lissee ; reanalyser les seuls elements solides,
+sans rigidite artificielle des cellules vides. Verifier fermeture, interfaces,
+connexion aux appuis et volume avant publication. Aucun rafistolage de volume
+ou pont de matiere cache pour transformer un echec en succes.
+
+L'objectif complet reste ouvert : brancher la primitive DSL, ses regions et
+capacites, les vrais resultats/revisions desktop, les contraintes et les
+supports robotiques. Cette iteration ne sera pas presentee comme achevement
+du systeme complet.
+
+### user
+
+### agent
+
+## Iteration 5 - Regions imposees, frontiere exacte et reanalyse livrees
+
+Design/Preserve/Void sont explicites dans BeamRequest, ordre cellulaire documente.
+Filtre et transpose ne melangent que les variables libres ; les constantes
+restent exactement 1/0, leur volume compte dans OC. Cibles egalitaires infeasibles
+et absence de variable libre sont diagnostiquees. Les tests de differences finies
+verifient compliance/volume avec masques. Une derive d'arrondi du filtre a 1+epsilon,
+detectee sur le nouveau benchmark, est bornee au domaine convexe mathematique.
+
+La reanalyse binaire supprime cellules vides et DOF inutilises, sans plancher
+SIMP. Elle exige les couches d'appui/charge entieres et la connexion par faces.
+La frontiere voxel exacte reutilise les controles de fermeture/orientation/liens
+et verifie le volume contre le nombre de cellules. Cavites autorisees ; contacts
+par coin/arete refuses. BeamSolid conserve requete/revision, solveur, analyse
+recalculee et statut du budget binaire, distinct de la solvabilite mecanique.
+Aucune compliance filtree n'est attribuee au STL binaire ou a la vue lissee.
+
+Benchmark reproductible --solid-stl : 120x40x20 mm, 12x4x2, charge -1 N, E70GPa,
+nu.3, couches X extremes Preserve, volume cible .85 et seuil explicite .65.
+33 iterations / 10.609 s debug ; compliance filtree 3.156725678745e-7 J ; binaire
+80/96 cellules, 80000 mm3, compliance reanalysee 2.964559539151e-7 J, residu
+1.414025e-12. Frontiere 168 sommets/336 triangles/une composante. Decodage STL
+independant Python : aretes fermees et opposees, volume et bornes [0,0,0] a
+[120,40,20] mm verifies. Artefact local /tmp/robogen-beam-solid.stl, non versionne.
+
+Limites mesurees et conservees : meme calcul au seuil .5 = volume .875, refuse
+par le budget ; seuil .75 = deconnexion. Regression integration sur les deux.
+Essais prealables a budgets .60 et .80 refuses pour connexion ou volume binaire.
+Le cas .85 est identifie comme fixture differente de l'ancien benchmark .35 ;
+il n'etablit pas une garantie de faisabilite generale. Aucun pont ajoute, aucune
+reparation implicite, aucune certification de contrainte/fabrication.
+
+Validation : 124 tests workspace passent, cargo fmt --check et cargo clippy
+--workspace --all-targets -- -D warnings passent, git diff --check propre.
+Tests couvrent masques, derivees, volume, annulation, suppression DOF, interfaces,
+fragments, cavites, contacts non-manifold et chaine optimisation/reanalyse/STL.
+ADR-008, TECHNICAL et README benchmark mis a jour. Aucun nouveau parcours UI dans
+cette tranche autonome ; aucune preuve native desktop revendiquee. .gitignore
+existant couvre sorties/outils/logs ; pas de binaire ni cache ajoute.
+
+Checkpoint local de cette tranche validee, sans push ni changement de lane.
+L'objectif global reste actif : adaptation TopologySpec/geometries/cas de charge,
+capacites de contraintes, publication DSL/desktop avec revision et annulation,
+puis supports du bipede. E330 reste intentionnellement actif jusque-la.
+
+### user

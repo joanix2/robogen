@@ -2,23 +2,25 @@ use robogen_domain::{Force, Length, Pressure};
 use robogen_topopt::{
     fem::Beam,
     linear::FaerSolver,
-    simp::{BeamRequest, SimpOptions, optimize_beam},
+    simp::{BeamRequest, CellRegion, SimpOptions, optimize_beam},
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = std::env::args_os().skip(1);
+    let mut solid_mode = false;
     let output = match arguments.next() {
         None => None,
-        Some(flag) if flag == "--surface-stl" => {
-            let path = arguments.next().ok_or("--surface-stl requires a path")?;
+        Some(flag) if flag == "--surface-stl" || flag == "--solid-stl" => {
+            solid_mode = flag == "--solid-stl";
+            let path = arguments.next().ok_or("STL flag requires a path")?;
             if arguments.next().is_some() {
-                return Err("usage: beam [--surface-stl PATH]".into());
+                return Err("usage: beam [--surface-stl PATH | --solid-stl PATH]".into());
             }
             Some(std::path::PathBuf::from(path))
         }
-        Some(_) => return Err("usage: beam [--surface-stl PATH]".into()),
+        Some(_) => return Err("usage: beam [--surface-stl PATH | --solid-stl PATH]".into()),
     };
-    let request = BeamRequest {
+    let mut request = BeamRequest {
         beam: Beam {
             dimensions: [120.0, 40.0, 20.0].map(Length::from_millimetres),
             cells: [12, 4, 2],
@@ -36,11 +38,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_iterations: 100,
         },
         document_revision: 0,
+        regions: Vec::new(),
     };
+    if solid_mode {
+        // Explicitly different benchmark: both full end layers preserved,
+        // 85% material budget. No implicit interface growth in the optimizer.
+        request.options.volume_fraction = 0.85;
+        request.regions = (0..96)
+            .map(|index| {
+                if !(8..88).contains(&index) {
+                    CellRegion::Preserve
+                } else {
+                    CellRegion::Design
+                }
+            })
+            .collect();
+    }
     eprintln!("M7 standalone cantilever benchmark; faer 0.22.6 sparse LLT; revision 0");
     eprintln!("120x40x20 mm; 12x4x2 Hex8; E=70 GPa; nu=0.3; x=0 clamped; tip force [0,0,-1] N");
     eprintln!(
-        "Linear isotropic elasticity; SIMP p=3, Emin/E=1e-6; density filter 15 mm; volume=0.35"
+        "Linear isotropic elasticity; SIMP p=3, Emin/E=1e-6; density filter 15 mm; volume={}; preserved_end_layers={}",
+        request.options.volume_fraction, solid_mode
     );
     eprintln!(
         "No robot loads, stress certification or manufacturing result; reconstructed surface is visualization only."
@@ -72,18 +90,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .mean_tip_displacement
             .map(Length::millimetres)
     );
-    let reconstruction = result.reconstruct_surface(0.5, &|| false)?;
-    let surface = &reconstruction.surface;
+    let surface = if solid_mode {
+        let reconstructed = result.reconstruct_solid(0.65, &FaerSolver, &|| false)?;
+        eprintln!(
+            "binary_volume_fraction={}; within_volume_budget={}; reanalysed_compliance_J={:.12e}; residual={:.6e}",
+            reconstructed.volume_fraction,
+            reconstructed.within_volume_budget,
+            reconstructed.analysis.compliance.joules(),
+            reconstructed.analysis.relative_residual
+        );
+        if !reconstructed.within_volume_budget {
+            return Err("Binary candidate exceeds requested volume; export refused".into());
+        }
+        reconstructed.surface
+    } else {
+        let reconstruction = result.reconstruct_surface(0.5, &|| false)?;
+        let surface = &reconstruction.surface;
+        eprintln!(
+            "surface_backend={}; threshold={}; vertices={}; triangles={}; surface_components={}; enclosed_volume_mm3={:.6}; filtered_material_volume_mm3={:.6}; revision={}",
+            surface.backend,
+            surface.threshold,
+            surface.vertices().len(),
+            surface.triangles().len(),
+            surface.components,
+            surface.enclosed_volume.cubic_metres() * 1e9,
+            reconstruction.filtered_material_volume.cubic_metres() * 1e9,
+            reconstruction.request.document_revision
+        );
+        reconstruction.surface
+    };
     eprintln!(
-        "surface_backend={}; threshold={}; vertices={}; triangles={}; surface_components={}; enclosed_volume_mm3={:.6}; filtered_material_volume_mm3={:.6}; revision={}",
+        "export_backend={}; vertices={}; triangles={}; boundary_components={}; volume_mm3={:.6}",
         surface.backend,
-        surface.threshold,
         surface.vertices().len(),
         surface.triangles().len(),
         surface.components,
-        surface.enclosed_volume.cubic_metres() * 1e9,
-        reconstruction.filtered_material_volume.cubic_metres() * 1e9,
-        reconstruction.request.document_revision
+        surface.enclosed_volume.cubic_metres() * 1e9
     );
     if let Some(path) = output {
         let mesh = robogen_cad::Mesh {
@@ -105,7 +147,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         robogen_export::export_binary_stl(&mesh, &path)?;
         eprintln!(
-            "Approximate visualization STL (millimetres), NOT mechanically revalidated: {}",
+            "STL (millimetres), binary FEM reanalysis={}; no strength/manufacturing certification: {}",
+            solid_mode,
             path.display()
         );
     }

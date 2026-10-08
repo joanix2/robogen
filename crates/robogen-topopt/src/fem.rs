@@ -23,6 +23,7 @@ impl Compliance {
 
 #[derive(Debug)]
 pub struct FemResult {
+    /// Grid nodes; absent nodes in a solid-mask analysis are zero placeholders.
     pub displacements: Vec<[Length; 3]>,
     pub compliance: Compliance,
     pub relative_residual: f64,
@@ -34,6 +35,10 @@ pub struct FemResult {
 pub enum FemError {
     #[error("Invalid beam, density, interpolation or resource budget")]
     InvalidInput,
+    #[error("Solid mask removes a clamped or loaded interface cell")]
+    MissingInterface,
+    #[error("Solid mask is not connected through cell faces to the clamp")]
+    Disconnected,
     #[error("Computation cancelled")]
     Cancelled,
     #[error(transparent)]
@@ -142,24 +147,127 @@ impl BeamModel {
         {
             return Err(FemError::InvalidInput);
         }
-        let mut lower = Vec::with_capacity(self.elements.len() * 300);
-        for (element, density) in self.elements.iter().zip(densities) {
+        let scales: Vec<_> = densities
+            .iter()
+            .map(|density| stiffness_floor + (1.0 - stiffness_floor) * density.powf(penalty))
+            .collect();
+        self.solve_scales(&scales, solver, cancelled)
+    }
+
+    /// Reanalyse the exact union of solid Hex8 cells. Void cells and unused
+    /// degrees of freedom are absent, with no SIMP stiffness floor.
+    /// The beam's complete clamp and loaded end faces must remain present.
+    pub fn solve_solid_mask(
+        &self,
+        solid: &[bool],
+        solver: &dyn SparseLinearSolver,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<FemResult, FemError> {
+        if cancelled() {
+            return Err(FemError::Cancelled);
+        }
+        if solid.len() != self.element_count() {
+            return Err(FemError::InvalidInput);
+        }
+        let [nx, ny, nz] = self.beam.cells;
+        let layer = ny * nz;
+        if solid[..layer]
+            .iter()
+            .chain(&solid[(nx - 1) * layer..])
+            .any(|value| !value)
+        {
+            return Err(FemError::MissingInterface);
+        }
+        let mut visited = vec![false; solid.len()];
+        let mut pending = vec![0];
+        while let Some(index) = pending.pop() {
             if cancelled() {
                 return Err(FemError::Cancelled);
             }
-            let scale = stiffness_floor + (1.0 - stiffness_floor) * density.powf(penalty);
+            if visited[index] {
+                continue;
+            }
+            visited[index] = true;
+            let point = [index / layer, index / nz % ny, index % nz];
+            for axis in 0..3 {
+                for positive in [false, true] {
+                    let mut other = point;
+                    if positive {
+                        if other[axis] + 1 == self.beam.cells[axis] {
+                            continue;
+                        }
+                        other[axis] += 1;
+                    } else {
+                        if other[axis] == 0 {
+                            continue;
+                        }
+                        other[axis] -= 1;
+                    }
+                    let neighbour = (other[0] * ny + other[1]) * nz + other[2];
+                    if solid[neighbour] && !visited[neighbour] {
+                        pending.push(neighbour);
+                    }
+                }
+            }
+        }
+        if solid
+            .iter()
+            .zip(visited)
+            .any(|(active, seen)| *active && !seen)
+        {
+            return Err(FemError::Disconnected);
+        }
+        let scales: Vec<_> = solid
+            .iter()
+            .map(|active| if *active { 1.0 } else { 0.0 })
+            .collect();
+        self.solve_scales(&scales, solver, cancelled)
+    }
+
+    fn solve_scales(
+        &self,
+        scales: &[f64],
+        solver: &dyn SparseLinearSolver,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<FemResult, FemError> {
+        let mut active = vec![false; self.node_count];
+        for (element, scale) in self.elements.iter().zip(scales) {
+            if *scale > 0.0 {
+                for node in element {
+                    active[*node] = true;
+                }
+            }
+        }
+        let mut mapping = vec![None; self.node_count];
+        let mut rhs = Vec::new();
+        for node in self.fixed_nodes..self.node_count {
+            if active[node] {
+                mapping[node] = Some(rhs.len());
+                rhs.extend_from_slice(
+                    &self.rhs[(node - self.fixed_nodes) * 3..(node - self.fixed_nodes + 1) * 3],
+                );
+            }
+        }
+        let mut lower = Vec::with_capacity(self.elements.len() * 300);
+        for (element, scale) in self.elements.iter().zip(scales) {
+            if cancelled() {
+                return Err(FemError::Cancelled);
+            }
+            if *scale == 0.0 {
+                continue;
+            }
             for local_row in 0..24 {
                 let row_node = element[local_row / 3];
-                if row_node < self.fixed_nodes {
+                let Some(base) = mapping[row_node] else {
                     continue;
-                }
-                let row = (row_node - self.fixed_nodes) * 3 + local_row % 3;
+                };
+                let row = base + local_row % 3;
                 for local_column in 0..24 {
                     let column_node = element[local_column / 3];
-                    if column_node < self.fixed_nodes {
+                    let Some(base) = mapping[column_node] else {
                         continue;
-                    }
-                    let column = (column_node - self.fixed_nodes) * 3 + local_column % 3;
+                    };
+                    let column = base + local_column % 3;
                     if row >= column {
                         lower.push(MatrixEntry {
                             row: DofId(row),
@@ -176,7 +284,7 @@ impl BeamModel {
         let solution = solver.solve(
             &SymmetricSystem {
                 lower,
-                rhs: self.rhs.clone(),
+                rhs: rhs.clone(),
             },
             1e-7,
         )?;
@@ -185,18 +293,22 @@ impl BeamModel {
         }
         let mut displacements = vec![[Length::ZERO; 3]; self.node_count];
         for (node, displacement) in displacements.iter_mut().enumerate().skip(self.fixed_nodes) {
-            *displacement = std::array::from_fn(|axis| {
-                Length::from_metres(solution.values[(node - self.fixed_nodes) * 3 + axis])
-            });
+            if let Some(base) = mapping[node] {
+                *displacement =
+                    std::array::from_fn(|axis| Length::from_metres(solution.values[base + axis]));
+            }
         }
-        let compliance = self
-            .rhs
+        let compliance = rhs
             .iter()
             .zip(&solution.values)
             .map(|(force, displacement)| force * displacement)
             .sum::<f64>();
         let mut element_energies = Vec::with_capacity(self.elements.len());
-        for element in &self.elements {
+        for (element, scale) in self.elements.iter().zip(scales) {
+            if *scale == 0.0 {
+                element_energies.push(0.0);
+                continue;
+            }
             if cancelled() {
                 return Err(FemError::Cancelled);
             }
@@ -212,10 +324,8 @@ impl BeamModel {
         }
         let total_energy: f64 = element_energies
             .iter()
-            .zip(densities)
-            .map(|(energy, density)| {
-                energy * (stiffness_floor + (1.0 - stiffness_floor) * density.powf(penalty))
-            })
+            .zip(scales)
+            .map(|(energy, scale)| energy * scale)
             .sum();
         if !compliance.is_finite()
             || compliance <= 0.0
@@ -351,6 +461,57 @@ mod tests {
         let exact = 10.0 * 0.12 / (70e9 * 0.02 * 0.02);
         assert!((result.mean_tip_displacement[0].metres() / exact - 1.0).abs() < 1e-10);
         assert!((result.compliance.joules() / (10.0 * exact) - 1.0).abs() < 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn binary_reanalysis_removes_void_dofs_and_rejects_lost_load_paths() -> Result<(), FemError> {
+        let model = BeamModel::new(beam([6, 3, 2], [0.0, 0.0, -1.0]))?;
+        let full = model.solve(&[1.0; 36], 3.0, 1e-6, &FaerSolver, &|| false)?;
+        let mut mask = vec![true; 36];
+        let binary = model.solve_solid_mask(&mask, &FaerSolver, &|| false)?;
+        assert!((binary.compliance.joules() / full.compliance.joules() - 1.0).abs() < 1e-12);
+        // Retain a one-cell-wide rail and both full end plates. Some interior
+        // nodes now touch only void cells and must leave the stiffness system.
+        for x in 1..5 {
+            for y in 1..3 {
+                for z in 0..2 {
+                    mask[(x * 3 + y) * 2 + z] = false;
+                }
+            }
+        }
+        let reduced = model.solve_solid_mask(&mask, &FaerSolver, &|| false)?;
+        assert!(reduced.compliance.joules() > full.compliance.joules());
+        assert!(reduced.relative_residual < 1e-7);
+        assert_eq!(
+            reduced.displacements[(3 * 4 + 3) * 3 + 1],
+            [Length::ZERO; 3]
+        );
+        assert!(
+            reduced
+                .element_energies
+                .iter()
+                .zip(&mask)
+                .all(|(energy, active)| *active || *energy == 0.0)
+        );
+        assert!(matches!(
+            model.solve_solid_mask(&mask, &FaerSolver, &|| true),
+            Err(FemError::Cancelled)
+        ));
+        mask[3 * 6..4 * 6].fill(false);
+        assert!(matches!(
+            model.solve_solid_mask(&mask, &FaerSolver, &|| false),
+            Err(FemError::Disconnected)
+        ));
+        mask[0] = false;
+        assert!(matches!(
+            model.solve_solid_mask(&mask, &FaerSolver, &|| false),
+            Err(FemError::MissingInterface)
+        ));
+        assert!(matches!(
+            model.solve_solid_mask(&[], &FaerSolver, &|| false),
+            Err(FemError::InvalidInput)
+        ));
         Ok(())
     }
 

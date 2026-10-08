@@ -19,11 +19,21 @@ pub struct SimpOptions {
     pub max_iterations: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellRegion {
+    Design,
+    Preserve,
+    Void,
+}
+
 #[derive(Debug, Clone)]
 pub struct BeamRequest {
     pub beam: Beam,
     pub options: SimpOptions,
     pub document_revision: u64,
+    /// Empty means all cells are design variables. Otherwise one role per cell,
+    /// ordered X slowest, Z fastest: (x * ny + y) * nz + z.
+    pub regions: Vec<CellRegion>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +67,10 @@ pub struct BeamOptimization {
 pub enum SimpError {
     #[error("Invalid SIMP settings")]
     InvalidOptions,
+    #[error("Volume target is incompatible with preserved/void regions")]
+    InfeasibleVolume,
+    #[error("SIMP requires at least one design cell; use binary FEM for a fully fixed mask")]
+    NoDesignVariables,
     #[error("Optimality criteria update failed its finite-value or volume checks")]
     Update,
     #[error(transparent)]
@@ -75,8 +89,39 @@ pub fn optimize_beam(
         return Err(FemError::Cancelled.into());
     }
     let model = BeamModel::new(request.beam.clone())?;
-    let filter = DensityFilter::new(model.beam(), options.filter_radius, cancelled)?;
-    let mut design = vec![options.volume_fraction; model.element_count()];
+    let filter = DensityFilter::new(
+        model.beam(),
+        options.filter_radius,
+        &request.regions,
+        cancelled,
+    )?;
+    let preserved = filter
+        .regions
+        .iter()
+        .filter(|role| **role == CellRegion::Preserve)
+        .count();
+    let free = filter
+        .regions
+        .iter()
+        .filter(|role| **role == CellRegion::Design)
+        .count();
+    if free == 0 {
+        return Err(SimpError::NoDesignVariables);
+    }
+    let free_density =
+        (options.volume_fraction * model.element_count() as f64 - preserved as f64) / free as f64;
+    if !free_density.is_finite() || !(MIN_DENSITY..=1.0).contains(&free_density) {
+        return Err(SimpError::InfeasibleVolume);
+    }
+    let mut design: Vec<_> = filter
+        .regions
+        .iter()
+        .map(|role| match role {
+            CellRegion::Design => free_density,
+            CellRegion::Preserve => 1.0,
+            CellRegion::Void => 0.0,
+        })
+        .collect();
     let mut densities = filter.apply(&design);
     let mut analysis = model.solve(
         &densities,
@@ -212,20 +257,36 @@ fn oc_update(
         .any(|value| !value.is_finite() || *value > 0.0)
         || volume_derivative
             .iter()
-            .any(|value| !value.is_finite() || *value <= 0.0)
+            .zip(&filter.regions)
+            .any(|(value, role)| {
+                !value.is_finite() || (*role == CellRegion::Design && *value <= 0.0)
+            })
     {
         return Err(SimpError::Update);
     }
     let ratios: Vec<_> = sensitivities
         .iter()
         .zip(volume_derivative)
-        .map(|(sensitivity, volume)| -sensitivity / volume)
+        .map(|(sensitivity, volume)| {
+            if *volume > 0.0 {
+                -sensitivity / volume
+            } else {
+                0.0
+            }
+        })
         .collect();
     let candidate = |multiplier: f64| {
         design
             .iter()
             .zip(&ratios)
-            .map(|(density, ratio)| {
+            .zip(&filter.regions)
+            .map(|((density, ratio), role)| {
+                if *role == CellRegion::Preserve {
+                    return 1.0;
+                }
+                if *role == CellRegion::Void {
+                    return 0.0;
+                }
                 (density * (ratio / multiplier).sqrt()).clamp(
                     (density - options.move_limit).max(MIN_DENSITY),
                     (density + options.move_limit).min(1.0),
@@ -264,12 +325,26 @@ fn oc_update(
 }
 
 struct DensityFilter {
+    regions: Vec<CellRegion>,
     rows: Vec<Vec<(usize, f64)>>,
 }
 
 impl DensityFilter {
-    fn new(beam: &Beam, radius: Length, cancelled: &dyn Fn() -> bool) -> Result<Self, FemError> {
+    fn new(
+        beam: &Beam,
+        radius: Length,
+        regions: &[CellRegion],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Self, FemError> {
         let count = beam.cells.iter().product();
+        let regions = if regions.is_empty() {
+            vec![CellRegion::Design; count]
+        } else {
+            if regions.len() != count {
+                return Err(FemError::InvalidInput);
+            }
+            regions.to_vec()
+        };
         let spacing: [f64; 3] =
             std::array::from_fn(|axis| beam.dimensions[axis].metres() / beam.cells[axis] as f64);
         let position = |index: usize| {
@@ -284,9 +359,16 @@ impl DensityFilter {
             if cancelled() {
                 return Err(FemError::Cancelled);
             }
+            if regions[target] != CellRegion::Design {
+                rows.push(Vec::new());
+                continue;
+            }
             let center = position(target);
             let mut row = Vec::new();
-            for source in 0..count {
+            for (source, role) in regions.iter().enumerate() {
+                if *role != CellRegion::Design {
+                    continue;
+                }
                 let other = position(source);
                 let distance = (0..3).fold(0.0_f64, |norm, axis| {
                     norm.hypot((center[axis] as f64 - other[axis] as f64) * spacing[axis])
@@ -302,16 +384,25 @@ impl DensityFilter {
             }
             rows.push(row);
         }
-        Ok(Self { rows })
+        Ok(Self { rows, regions })
     }
 
     fn apply(&self, values: &[f64]) -> Vec<f64> {
         self.rows
             .iter()
-            .map(|row| {
+            .zip(&self.regions)
+            .map(|(row, role)| {
+                if *role == CellRegion::Preserve {
+                    return 1.0;
+                }
+                if *role == CellRegion::Void {
+                    return 0.0;
+                }
                 row.iter()
                     .map(|(index, weight)| values[*index] * weight)
-                    .sum()
+                    .sum::<f64>()
+                    // Normalized convex weights can round just above one.
+                    .clamp(0.0, 1.0)
             })
             .collect()
     }
@@ -352,6 +443,7 @@ mod tests {
                 max_iterations: 40,
             },
             document_revision: 7,
+            regions: Vec::new(),
         }
     }
 
@@ -361,7 +453,8 @@ mod tests {
         request.beam.cells = [3, 2, 1];
         request.options.filter_radius = Length::from_metres(0.05);
         let model = BeamModel::new(request.beam.clone())?;
-        let filter = DensityFilter::new(&request.beam, request.options.filter_radius, &|| false)?;
+        let filter =
+            DensityFilter::new(&request.beam, request.options.filter_radius, &[], &|| false)?;
         let design = vec![0.4, 0.5, 0.6, 0.45, 0.55, 0.65];
         let evaluate = |variables: &[f64]| {
             model.solve(&filter.apply(variables), 3.0, 1e-6, &FaerSolver, &|| false)
@@ -385,6 +478,102 @@ mod tests {
             let volume = (mean(&filter.apply(&plus)) - mean(&filter.apply(&minus))) / 2e-5;
             assert!((volume - volume_gradient[index]).abs() < 1e-10);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn masked_filter_has_exact_regions_and_consistent_derivatives() -> Result<(), SimpError> {
+        let mut request = request();
+        request.beam.cells = [4, 2, 1];
+        let roles = [
+            CellRegion::Preserve,
+            CellRegion::Preserve,
+            CellRegion::Design,
+            CellRegion::Void,
+            CellRegion::Design,
+            CellRegion::Design,
+            CellRegion::Preserve,
+            CellRegion::Preserve,
+        ];
+        let filter =
+            DensityFilter::new(&request.beam, Length::from_metres(0.05), &roles, &|| false)?;
+        let model = BeamModel::new(request.beam.clone())?;
+        let design = vec![0.6; 8];
+        let evaluate = |x: &[f64]| model.solve(&filter.apply(x), 3.0, 1e-6, &FaerSolver, &|| false);
+        let densities = filter.apply(&design);
+        let analytic = sensitivities(&filter, &evaluate(&design)?, &densities, &request.options);
+        let dv = filter.transpose(&[0.125; 8]);
+        for i in 0..8 {
+            let mut plus = design.clone();
+            plus[i] += 1e-5;
+            let mut minus = design.clone();
+            minus[i] -= 1e-5;
+            let dc = (evaluate(&plus)?.compliance.joules() - evaluate(&minus)?.compliance.joules())
+                / 2e-5;
+            if roles[i] == CellRegion::Design {
+                assert!((dc / analytic[i] - 1.0).abs() < 1e-5);
+            } else {
+                assert_eq!(dc, 0.0);
+                assert_eq!(analytic[i], 0.0);
+                assert_eq!(dv[i], 0.0);
+                assert_eq!(
+                    densities[i],
+                    if roles[i] == CellRegion::Preserve {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                );
+            }
+            let numerical_volume =
+                (mean(&filter.apply(&plus)) - mean(&filter.apply(&minus))) / 2e-5;
+            assert!((dv[i] - numerical_volume).abs() < 1e-10);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn masks_hold_during_optimization_and_infeasible_budget_is_rejected() -> Result<(), SimpError> {
+        let mut request = request();
+        request.beam.cells = [4, 2, 1];
+        request.options.volume_fraction = 0.65;
+        request.options.max_iterations = 4;
+        request.regions = vec![
+            CellRegion::Preserve,
+            CellRegion::Preserve,
+            CellRegion::Void,
+            CellRegion::Design,
+            CellRegion::Design,
+            CellRegion::Design,
+            CellRegion::Preserve,
+            CellRegion::Preserve,
+        ];
+        let result = optimize_beam(&request, &FaerSolver, &|| false, &mut |_| {})?;
+        for (role, density) in request.regions.iter().zip(&result.densities) {
+            match role {
+                CellRegion::Preserve => assert_eq!(*density, 1.0),
+                CellRegion::Void => assert_eq!(*density, 0.0),
+                _ => {}
+            }
+        }
+        assert!(
+            result
+                .history
+                .iter()
+                .all(|entry| (entry.volume_fraction - 0.65).abs() < 1e-6)
+        );
+        for fraction in [0.4, 0.95] {
+            request.options.volume_fraction = fraction;
+            assert!(matches!(
+                optimize_beam(&request, &FaerSolver, &|| false, &mut |_| {}),
+                Err(SimpError::InfeasibleVolume)
+            ));
+        }
+        request.regions.pop();
+        assert!(matches!(
+            optimize_beam(&request, &FaerSolver, &|| false, &mut |_| {}),
+            Err(SimpError::Fem(FemError::InvalidInput))
+        ));
         Ok(())
     }
 

@@ -490,3 +490,30 @@ STL/PDF/PNG extensions are not globally ignored: source fixtures and references
 can live outside generated/download directories. The 2026-10-07 review checked
 28 excluded paths and 18 retained paths with `git check-ignore --no-index`;
 no already indexed file matched the exclusions.
+
+## M7 Region Masks And Exact Binary Reanalysis (iteration 5, 2026-10-08)
+
+The standalone BeamRequest accepts explicit Design/Preserve/Void masks. The
+filter/transpose and OC preserve constants, count mandatory material in the
+volume equality and reject infeasible targets. There is no automatic preserve
+thickness. Fully fixed masks use FEM directly. Filter roundoff at density one
+is clamped to the mathematical convex-combination range [0,1].
+
+Binary reanalysis removes void Hex8 elements and unused DOFs, requires complete
+beam end interfaces and a face-connected load path, then checks residual and
+energy balance without the SIMP stiffness floor. The exact voxel boundary uses
+shared lattice vertices, manifold validation and a volume invariant. BeamSolid
+retains request/revision, solver, reanalysed metrics and actual volume; budget
+status is separate from mechanical solvability. Surface Nets remains a separate
+approximate preview. No production cross-crate dependency or persistent schema
+is added, and no desktop export guard is bypassed.
+
+`--solid-stl PATH` runs the explicitly documented 0.85-volume case with preserved
+end layers and threshold 0.65. It exports only a connected, reanalysed candidate
+within budget: 80/96 cells, 80,000 mm3, 168 vertices/336 triangles, preserved
+X=0/X=120 faces, compliance 2.964559539151e-7 J. Thresholds 0.5 (over budget)
+and 0.75 (disconnected) are rejected by the respective checks. Neither this case
+nor the validation machinery guarantees arbitrary constraints are feasible.
+124 workspace tests/fmt/Clippy pass. Full reproduction and trial limitations:
+examples/topopt_beam/README.md. No new UI route is delivered in this slice;
+TopologySpec/desktop publication stays unavailable pending its real adapter.

@@ -80,7 +80,7 @@ Results retain the request and solver identifier; revision is caller-scoped,
 not a global cache key. No document publication or stale-result dispatch exists
 on this standalone path yet.
 
-Stress/frequency constraints, preserved/excluded geometric regions, FDM/CNC
+Stress/frequency constraints, arbitrary geometric regions, FDM/CNC
 constraints, post-operation revalidation and manufacturing proof remain absent.
 `topology(...)` still fails with E330 until its complete requested capabilities
 are implemented. M7 desktop acceptance and M5/M8 robot mechanics remain open.
@@ -134,3 +134,77 @@ rendered from the actual exported STL, not a native desktop screenshot.
 Four new surface tests and the extended SIMP/STL integration pass. Workspace:
 118 tests, fmt and Clippy all-targets -D warnings pass.
 
+
+## Explicit Regions And Binary Reanalysis (iteration 5)
+
+`BeamRequest.regions` is either empty (all Design) or one `CellRegion` per Hex8,
+ordered X slowest, Z fastest: `(x*ny+y)*nz+z`. Preserve cells remain exactly 1,
+Void cells exactly 0. The density filter mixes only Design cells. Its transpose
+excludes fixed variables, while the volume includes preserved material. The
+uniform reference now means uniform *free* density with identical fixed regions.
+This OC implementation targets an equality volume: infeasible targets are
+rejected, and fully fixed masks require direct binary FEM rather than SIMP.
+Regions are explicit caller inputs; no interface thickness or connecting rail is
+invented. The SIMP floor remains an optimization regularization, including Void
+cells, and cannot establish that a thresholded solid carries the loads.
+
+`BeamOptimization::reconstruct_solid` thresholds the field, checks fixed/void
+regions, requires the complete clamped and loaded cell layers, and verifies
+face-connected material. `BeamModel::solve_solid_mask` omits empty elements and
+unused DOFs entirely. It reuses the original forces and constitutive law without
+an artificial stiffness floor. Absent grid nodes have zero displacement
+placeholders; they are not solved DOFs. Edge/corner-only joins are insufficient.
+
+`VoxelBoundaryReconstructor` emits exposed faces of exactly those cells, with
+shared lattice vertices and outward winding. It checks manifold edges/vertex
+links, domain bounds and signed volume against the occupied-cell volume. Cavities
+are allowed; surface component count includes inner shells. This staircase
+boundary is exactly the reanalysed Hex8 union, **not a smoothed surface**. A
+successful analysis is linear elastic stiffness evidence, not stress, fatigue,
+printability or strength certification. The separate Surface Nets preview is
+unchanged and must not inherit these mechanical results.
+
+The returned `BeamSolid` has its own analysis, caller revision, backend, actual
+volume fraction and `within_volume_budget`. A mechanically analysable candidate
+can still exceed the requested budget. The example refuses to export it.
+Cancellation propagates through reanalysis and surface extraction. Tests cover
+masked compliance/volume derivatives, fixed regions, infeasibility, removed DOFs,
+missing interfaces, disconnected masks, cavities and non-manifold contacts.
+
+### Reproducible Binary Example
+
+```sh
+cargo run -p robogen-topopt --example beam -- --solid-stl /tmp/beam-solid.stl
+```
+
+This is an explicitly different benchmark: same grid/material/load, complete
+first and last X cell layers preserved, **volume target 0.85**, reconstruction
+**threshold 0.65**. It does not replace the original 0.35 reference above.
+Local debug run 2026-10-08: 33 updates, DesignChange, 10.609 s (excluding build).
+
+| Measure | Value |
+| --- | --- |
+| Uniform free-density reference compliance | 4.402968327304e-7 J |
+| Final filtered compliance | 3.156725678745e-7 J |
+| Filtered volume fraction | 0.85 |
+| Actual binary volume fraction | 0.8333333333333334 |
+| Reanalysed binary compliance | 2.964559539151e-7 J |
+| Reanalysis relative residual | 1.414025e-12 |
+| Boundary | 168 vertices, 336 triangles, one component |
+| Enclosed volume | 80,000 mm3 |
+| Bounds | [0,0,0] to [120,40,20] mm |
+
+Independent decoding of the exported STL verifies paired opposite edges, volume
+and bounds. No STL, generated cache or local toolchain is added to Git.
+
+Threshold selection matters: the same run at 0.5 yields volume fraction 0.875
+and fails the budget; at 0.75 it loses connectivity. Both are regression tests.
+Earlier trials with preserved end layers and volume targets 0.60 and 0.80 also
+failed connectivity or binary volume checks. These are not repaired or presented
+as usable optimized supports. A robust projection/continuation or threshold
+selection strategy remains future work; no general feasibility is promised.
+The 0.85 benchmark proves the validation path on one explicit case.
+
+All 124 workspace tests, formatting and Clippy all-targets -D warnings pass.
+Arbitrary geometric regions, multiple load cases, constraint capability dispatch,
+DSL result publication and the desktop workflow remain open; E330 is unchanged.

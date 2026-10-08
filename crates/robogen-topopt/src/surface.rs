@@ -119,25 +119,7 @@ impl SurfaceReconstructor for SurfaceNetsReconstructor {
         threshold: f64,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<ReconstructedSurface, SurfaceError> {
-        if grid.cells.iter().any(|count| *count == 0 || *count > 64)
-            || grid.cells.iter().product::<usize>() > 2048
-            || grid.cells.iter().product::<usize>() != grid.densities.len()
-            || grid
-                .dimensions
-                .iter()
-                .any(|length| !length.metres().is_finite() || length.metres() <= 0.0)
-            || grid
-                .densities
-                .iter()
-                .any(|density| !density.is_finite() || !(0.0..=1.0).contains(density))
-            || !threshold.is_finite()
-            || !(0.5..1.0).contains(&threshold)
-        {
-            return Err(SurfaceError::InvalidInput);
-        }
-        if cancelled() {
-            return Err(SurfaceError::Cancelled);
-        }
+        validate_grid(grid, threshold, cancelled)?;
         let size = grid.cells.map(|count| count as u32 + 4);
         let shape = RuntimeShape::<u32, 3>::new(size);
         let mut samples = vec![threshold as f32; shape.size() as usize];
@@ -221,6 +203,201 @@ impl SurfaceReconstructor for SurfaceNetsReconstructor {
             sampling_subdivisions: SUBDIVISIONS,
             components,
             enclosed_volume: Volume(volume),
+        })
+    }
+}
+
+fn validate_grid(
+    grid: &DensityGrid<'_>,
+    threshold: f64,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(), SurfaceError> {
+    if grid.cells.iter().any(|count| *count == 0 || *count > 64)
+        || grid.cells.iter().product::<usize>() > 2048
+        || grid.cells.iter().product::<usize>() != grid.densities.len()
+        || grid
+            .dimensions
+            .iter()
+            .any(|length| !length.metres().is_finite() || length.metres() <= 0.0)
+        || grid
+            .densities
+            .iter()
+            .any(|density| !density.is_finite() || !(0.0..=1.0).contains(density))
+        || !threshold.is_finite()
+        || !(0.5..1.0).contains(&threshold)
+    {
+        return Err(SurfaceError::InvalidInput);
+    }
+    if cancelled() {
+        return Err(SurfaceError::Cancelled);
+    }
+    Ok(())
+}
+
+/// Exact boundary of thresholded cells. No interpolation or smoothing.
+pub struct VoxelBoundaryReconstructor;
+
+impl SurfaceReconstructor for VoxelBoundaryReconstructor {
+    fn reconstruct(
+        &self,
+        grid: &DensityGrid<'_>,
+        threshold: f64,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<ReconstructedSurface, SurfaceError> {
+        validate_grid(grid, threshold, cancelled)?;
+        let mut vertices = Vec::new();
+        let mut triangles = Vec::new();
+        let mut indices = BTreeMap::new();
+        let spacing: [f64; 3] =
+            std::array::from_fn(|axis| grid.dimensions[axis].metres() / grid.cells[axis] as f64);
+        let [nx, ny, nz] = grid.cells;
+        let occupied = |p: [usize; 3]| grid.densities[(p[0] * ny + p[1]) * nz + p[2]] >= threshold;
+        let mut count = 0;
+        for x in 0..nx {
+            for y in 0..ny {
+                for z in 0..nz {
+                    if cancelled() {
+                        return Err(SurfaceError::Cancelled);
+                    }
+                    let point = [x, y, z];
+                    if !occupied(point) {
+                        continue;
+                    }
+                    count += 1;
+                    for axis in 0..3 {
+                        for positive in [false, true] {
+                            let mut neighbour = point;
+                            let boundary = if positive {
+                                point[axis] + 1 == grid.cells[axis]
+                            } else {
+                                point[axis] == 0
+                            };
+                            if !boundary {
+                                if positive {
+                                    neighbour[axis] += 1;
+                                } else {
+                                    neighbour[axis] -= 1;
+                                }
+                                if occupied(neighbour) {
+                                    continue;
+                                }
+                            }
+                            // Cyclic axes give u cross v = outward positive normal.
+                            let u = (axis + 1) % 3;
+                            let v = (axis + 2) % 3;
+                            let mut face = [0; 4];
+                            for (corner, [du, dv]) in
+                                [[0, 0], [1, 0], [1, 1], [0, 1]].into_iter().enumerate()
+                            {
+                                let mut position = point;
+                                position[axis] += usize::from(positive);
+                                position[u] += du;
+                                position[v] += dv;
+                                face[corner] = *indices.entry(position).or_insert_with(|| {
+                                    let index = vertices.len() as u32;
+                                    vertices.push(std::array::from_fn(|a| {
+                                        Length::from_metres(position[a] as f64 * spacing[a])
+                                    }));
+                                    index
+                                });
+                            }
+                            if !positive {
+                                face.reverse();
+                            }
+                            triangles
+                                .extend([[face[0], face[1], face[2]], [face[0], face[2], face[3]]]);
+                        }
+                    }
+                }
+            }
+        }
+        if triangles.is_empty() {
+            return Err(SurfaceError::Empty);
+        }
+        let (components, volume) =
+            validate_mesh(&vertices, &triangles, grid.dimensions, cancelled)?;
+        let exact_volume = count as f64 * spacing.iter().product::<f64>();
+        if (volume / exact_volume - 1.0).abs() > 1e-9 {
+            return Err(SurfaceError::InvalidMesh("voxel boundary volume mismatch"));
+        }
+        Ok(ReconstructedSurface {
+            vertices,
+            triangles,
+            threshold,
+            backend: "robogen-voxel-boundary-v1",
+            sampling_subdivisions: 1,
+            components,
+            enclosed_volume: Volume(volume),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct BeamSolid {
+    pub request: BeamRequest,
+    pub solver_backend: String,
+    pub surface: ReconstructedSurface,
+    /// Recomputed on binary cells with void elements removed, not on densities.
+    pub analysis: crate::fem::FemResult,
+    pub volume_fraction: f64,
+    /// A threshold can violate the original volume budget. Such a candidate
+    /// must not be published as satisfying the optimisation constraints.
+    pub within_volume_budget: bool,
+}
+
+#[derive(Debug, Error)]
+pub enum BeamSolidError {
+    #[error(transparent)]
+    Surface(#[from] SurfaceError),
+    #[error(transparent)]
+    Fem(#[from] crate::fem::FemError),
+    #[error("Density field violates its preserved/void regions")]
+    Regions,
+}
+
+impl BeamOptimization {
+    pub fn reconstruct_solid(
+        &self,
+        threshold: f64,
+        solver: &dyn crate::linear::SparseLinearSolver,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<BeamSolid, BeamSolidError> {
+        use crate::simp::CellRegion;
+        let grid = DensityGrid {
+            dimensions: self.request.beam.dimensions,
+            cells: self.request.beam.cells,
+            densities: &self.densities,
+        };
+        validate_grid(&grid, threshold, cancelled)?;
+        if !self.request.regions.is_empty()
+            && (self.request.regions.len() != self.densities.len()
+                || self.request.regions.iter().zip(&self.densities).any(
+                    |(role, density)| match role {
+                        CellRegion::Design => false,
+                        CellRegion::Preserve => *density != 1.0,
+                        CellRegion::Void => *density != 0.0,
+                    },
+                ))
+        {
+            return Err(BeamSolidError::Regions);
+        }
+        let solid: Vec<_> = self
+            .densities
+            .iter()
+            .map(|density| *density >= threshold)
+            .collect();
+        let model = crate::fem::BeamModel::new(self.request.beam.clone())?;
+        let analysis = model.solve_solid_mask(&solid, solver, cancelled)?;
+        let surface = VoxelBoundaryReconstructor.reconstruct(&grid, threshold, cancelled)?;
+        let volume_fraction =
+            solid.iter().filter(|value| **value).count() as f64 / solid.len() as f64;
+        Ok(BeamSolid {
+            request: self.request.clone(),
+            solver_backend: solver.backend_id().to_owned(),
+            surface,
+            analysis,
+            volume_fraction,
+            within_volume_budget: volume_fraction <= self.request.options.volume_fraction + 1e-10,
         })
     }
 }
@@ -360,6 +537,66 @@ fn dot(first: [f64; 3], second: [f64; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_voxel_boundary_retains_domain_faces_and_volume() -> Result<(), SurfaceError> {
+        let mut densities = vec![1.0; 27];
+        densities[13] = 0.0; // enclosed cavity, correctly oriented inner shell
+        let grid = DensityGrid {
+            dimensions: [0.03, 0.06, 0.09].map(Length::from_metres),
+            cells: [3; 3],
+            densities: &densities,
+        };
+        let surface = VoxelBoundaryReconstructor.reconstruct(&grid, 0.5, &|| false)?;
+        assert_eq!(surface.components, 2); // boundary components, one solid
+        assert!(
+            (surface.enclosed_volume.cubic_metres() / (0.01 * 0.02 * 0.03 * 26.0) - 1.0).abs()
+                < 1e-12
+        );
+        for axis in 0..3 {
+            assert_eq!(
+                surface
+                    .vertices
+                    .iter()
+                    .map(|point| point[axis].metres())
+                    .fold(f64::INFINITY, f64::min),
+                0.0
+            );
+            assert!(
+                (surface
+                    .vertices
+                    .iter()
+                    .map(|point| point[axis].metres())
+                    .fold(0.0, f64::max)
+                    - grid.dimensions[axis].metres())
+                .abs()
+                    < 1e-12
+            );
+        }
+        assert!(matches!(
+            VoxelBoundaryReconstructor.reconstruct(&grid, 0.5, &|| true),
+            Err(SurfaceError::Cancelled)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn voxel_boundary_rejects_edge_and_corner_contacts() {
+        for last in [3, 7] {
+            let mut densities = [0.0; 8];
+            densities[0] = 1.0;
+            densities[last] = 1.0;
+            let grid = DensityGrid {
+                dimensions: [0.02; 3].map(Length::from_metres),
+                cells: [2; 3],
+                densities: &densities,
+            };
+            assert!(matches!(
+                VoxelBoundaryReconstructor.reconstruct(&grid, 0.5, &|| false),
+                Err(SurfaceError::InvalidMesh(_))
+            ));
+        }
+    }
 
     #[test]
     fn full_anisotropic_grid_has_closed_oriented_surface() -> Result<(), SurfaceError> {

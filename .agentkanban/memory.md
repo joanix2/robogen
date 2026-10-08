@@ -51,3 +51,11 @@
   33600 mm3 ; appui/face chargee perdus. Ne pas attribuer compliance du champ
   au mesh. Suite : preserver interfaces/chemins de charge et reanalyser avant
   publication mecanique. Desktop/TopologySpec restent indisponibles (E330).
+
+- 2026-10-08 : ticket 15 iteration 5 ajoute masques Design/Preserve/Void,
+  frontiere voxel exacte et reanalyse sans rigidite du vide. 124 tests/fmt/Clippy
+  passent. Nouveau benchmark explicite volume .85/seuil .65 : 80/96 cellules,
+  interfaces conservees, compliance binaire 2.964559539151e-7 J, STL ferme.
+  Seuil .5 depasse budget, .75 deconnecte : refus testes. Aucun ajustement cache,
+  aucune garantie generale ni certification. Objectif global actif, DSL/desktop
+  E330 toujours en attente d'adaptateur TopologySpec, contraintes et publication.

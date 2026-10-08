@@ -56,3 +56,11 @@ reconstruction/publication reste ouverte dans le TODO M7 et l'iteration 1.
 118 tests, fmt et Clippy passent. Artefact reel : 208 sommets, 404 triangles,
 3 composantes. Les faces d'appui/charge sont perdues ; la surface n'est pas
 un support valide. Preservation et reanalyse mecanique restent a implementer.
+
+# Iteration 5 - Regions imposees et reanalyse binaire
+
+- [x] Ajouter Design/Preserve/Void au calcul SIMP, filtre et derivees coherents, budget incluant preserve.
+- [x] Verifier infeasibilite, sensibilites, interfaces et exclusions sous iterations/annulation.
+- [x] Extraire une frontiere voxel exacte et verifier fermeture/volume/interfaces.
+- [x] Reanalyser la geometrie binaire avec cellules vides absentes ; refuser charges/appuis perdus et fragments.
+- [x] Executer benchmark/regressions/gates et documenter les mesures sans cloturer l'objectif global.

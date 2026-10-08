@@ -97,3 +97,23 @@ elle ne doit pas attribuer la compliance du champ de densites au STL seuille.
 
 - <https://docs.rs/faer/latest/faer/sparse/>
 
+
+## Preservation et reanalyse (iteration 5, 2026-10-08)
+
+Le masque cellulaire porte explicitement Design/Preserve/Void. Les regions
+preservees ont densite physique 1, les regions interdites 0, et seules les
+variables Design sont filtrees entre elles. Les derivees du filtre et le
+budget OC excluent les variables constantes, mais le volume preserve compte
+dans le budget global. Une fraction incompatible est une erreur ; le coeur
+ne genere aucune preservation implicite. L'exemple peut declarer les couches
+d'appui/charge comme Preserve.
+
+Un second reconstructeur produit les faces exposees des cellules binaires.
+Cette frontiere a marches d'escalier correspond exactement aux Hex8 restants,
+preserve les interfaces alignees sur grille et n'est pas une surface lissee.
+Surface Nets reste disponible comme projection distincte. La reanalyse de la
+frontiere voxel doit supprimer les cellules vides et leurs DOF inutilises,
+verifier le chemin de charge vers l'appui et ne pas utiliser le plancher SIMP
+pour porter artificiellement des efforts a travers le vide. Les metriques
+recalculees concernent cette discretisation, pas une certification de solidite
+ni les geometries lissees. L'ancien benchmark sans masque reste reproductible.
