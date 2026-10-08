@@ -30,9 +30,19 @@ fn biped_reuses_library_geometry_places_components_and_rebuilds_shared_dimension
         );
     }
     let mut project = Project::from_source(SOURCE).map_err(|errors| format!("{errors:?}"))?;
-    assert_eq!(project.snapshot().model.parts.len(), 17);
-    assert_eq!(project.taxonomy_instances().len(), 17);
-    let names: Vec<_> = project.snapshot().model.parts.keys().cloned().collect();
+    assert_eq!(project.snapshot().model.parts.len(), 28);
+    assert_eq!(project.taxonomy_instances().len(), 28);
+    assert_eq!(project.snapshot().meshes.len(), 17);
+    assert_eq!(project.snapshot().preparation.len(), 11);
+    assert!(project.snapshot().topology.is_empty());
+    let names: Vec<_> = project
+        .snapshot()
+        .model
+        .parts
+        .values()
+        .filter(|part| project.snapshot().meshes.contains_key(&part.id))
+        .map(|part| part.name.clone())
+        .collect();
     // Conservative AABB separation verifies this initial pose only, not motion.
     for (i, name) in names.iter().enumerate() {
         let a = bounds(&project, name);
@@ -104,5 +114,90 @@ fn biped_reuses_library_geometry_places_components_and_rebuilds_shared_dimension
     assert!(diagnostics
         .iter()
         .any(|d| d.code == "E104" && d.span.end > d.span.start));
+    Ok(())
+}
+
+#[test]
+fn biped_supports_prepare_in_place_but_cannot_run_with_missing_physics() -> Result<(), String> {
+    let mut project = Project::from_source(SOURCE).map_err(|errors| format!("{errors:?}"))?;
+    for part in project
+        .snapshot()
+        .model
+        .parts
+        .values()
+        .filter(|part| part.name.ends_with("Support"))
+    {
+        let layers = &project.snapshot().preparation[&part.id];
+        assert!(
+            layers.iter().all(|mesh| !mesh.triangles.is_empty()),
+            "{}",
+            part.name
+        );
+        for axis in 0..3 {
+            let lower = layers[0]
+                .vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::INFINITY, f32::min);
+            let upper = layers[0]
+                .vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!(
+                layers[1]
+                    .vertices
+                    .iter()
+                    .all(|vertex| vertex.position[axis] >= lower - 1e-6
+                        && vertex.position[axis] <= upper + 1e-6),
+                "preserve outside domain bounds: {} axis {axis}",
+                part.name
+            );
+        }
+        let specifications = project.topology_operations(part.id);
+        assert_eq!(specifications.len(), 1);
+        let specification = specifications[0];
+        assert_eq!(
+            specification.objective,
+            robogen_ir::topology::Objective::MinimizeMass
+        );
+        if part.name == "LeftShinSupport" {
+            assert_eq!(specification.name, "left_shin_PLA_estimated");
+            assert!(specification.material.is_some());
+            assert_eq!(specification.load_cases.len(), 2);
+            assert!(specification.preparation_issues().is_empty());
+        } else {
+            assert_eq!(specification.material, None);
+            assert!(specification.load_cases.is_empty());
+            assert_eq!(specification.preparation_issues().len(), 3);
+        }
+        assert!(!project.snapshot().meshes.contains_key(&part.id));
+    }
+    let camera = project.snapshot().model.parts["CameraSupport"].id;
+    let layers = &project.snapshot().preparation[&camera];
+    let lowest = layers[0]
+        .vertices
+        .iter()
+        .map(|vertex| vertex.position[2])
+        .fold(f32::INFINITY, f32::min);
+    assert!((lowest - 0.322).abs() < 1e-5);
+    let Err(errors) = project.optimize_part(
+        camera,
+        &robogen_project::topology_settings(),
+        42,
+        &|| false,
+        &|_, _| {},
+    ) else {
+        return Err("incomplete support must not optimize".into());
+    };
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.code == "E347" && error.span.end > error.span.start),
+        "{errors:?}"
+    );
+    assert!(project.snapshot().topology.is_empty());
+    assert!(project.snapshot().mass_diagnostics.is_empty());
+    assert_eq!(project.snapshot().meshes.len(), 17);
     Ok(())
 }

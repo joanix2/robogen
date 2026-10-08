@@ -5,12 +5,20 @@ mod library;
 pub use library::{FunctionDefinition, LibraryGenerator, TaxonomyFeature, TaxonomyInstance};
 
 use compilation::CompilationWorker;
-use robogen_cad::{build_part_mesh, build_part_mesh_cancellable, Mesh, NativeCadKernel};
+use robogen_cad::{build_part_mesh, build_part_mesh_cancellable, Mesh, ResolvedTopologyKernel};
 use robogen_constraints::{ConstraintSolver, NativeConstraintSolver};
-use robogen_domain::{Diagnostic, PartId, Quantity, Severity, SourceSpan};
+use robogen_domain::{
+    Diagnostic, Length, LoadCaseId, Mass, MaterialId, OptimizationId, PartId, Quantity, Severity,
+    SourceSpan,
+};
 use robogen_dsl::{Declaration, Expr, ExprKind, Module};
-use robogen_ir::{lower, SemanticModel};
-use robogen_topopt::{TopologyOptimizer, TopologyRequest, UnavailableTopologyOptimizer};
+pub use robogen_ir::topology::Objective as TopologyObjective;
+use robogen_ir::{lower, Feature, Part, SemanticModel, SolidGeometry};
+pub use robogen_topopt::execution::{
+    grid_resolution, resolution_for_cell_size, ComputeBackend, ExecutionSettings, GridResolution,
+};
+pub use robogen_topopt::mass::{MassDiagnostic, MASS_BACKEND};
+use robogen_topopt::{execution::execute_topology, linear::FaerSolver, TopologyRequest};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -47,6 +55,66 @@ pub enum ProjectIoError {
 pub struct ProjectSnapshot {
     pub model: SemanticModel,
     pub meshes: BTreeMap<PartId, Mesh>,
+    pub topology: BTreeMap<OptimizationId, TopologyReport>,
+    pub mass_diagnostics: BTreeMap<OptimizationId, MassDiagnostic>,
+    pub preparation: BTreeMap<PartId, [Mesh; 3]>,
+    pub optimization_states: BTreeMap<PartId, OptimizationState>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OptimizationState {
+    NotCalculated,
+    Running,
+    Calculated,
+    Diagnostic,
+    Obsolete,
+    Failed,
+    Cancelled,
+}
+
+pub fn topology_settings() -> ExecutionSettings {
+    ExecutionSettings {
+        compute_backend: ComputeBackend::Cpu,
+        cells: [12, 4, 2],
+        filter_radius: Length::from_millimetres(12.0),
+        threshold: 0.65,
+        max_iterations: 100,
+    }
+}
+
+fn part_operations(part: &Part) -> Vec<&robogen_ir::topology::TopologySpec<SolidGeometry>> {
+    part.features
+        .iter()
+        .flat_map(|feature| match feature {
+            Feature::Solid { geometry, .. } => geometry.topology_operations(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopologyReport {
+    pub name: String,
+    pub span: SourceSpan,
+    pub material: MaterialId,
+    pub document_revision: u64,
+    pub settings: ExecutionSettings,
+    pub solver_backend: String,
+    pub origin: [Length; 3],
+    pub domain_cells: usize,
+    pub iterations: usize,
+    pub volume_fraction: f64,
+    pub mass: Mass,
+    pub cases: Vec<TopologyCaseReport>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopologyCaseReport {
+    pub id: LoadCaseId,
+    pub span: SourceSpan,
+    pub compliance: robogen_topopt::fem::Compliance,
+    pub relative_residual: f64,
+    pub max_displacement: Length,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -96,6 +164,7 @@ pub fn load_manifest(path: &Path) -> Result<(ProjectManifest, String), ProjectIo
     Ok((manifest, source))
 }
 
+#[derive(Clone)]
 pub struct Project {
     source: String,
     ast: Module,
@@ -114,6 +183,8 @@ pub struct SourceDocument {
     redo: Vec<String>,
     worker: Option<CompilationWorker>,
     building: bool,
+    optimizing: Option<PartId>,
+    optimization_errors: BTreeMap<PartId, Vec<Diagnostic>>,
 }
 
 impl SourceDocument {
@@ -130,6 +201,8 @@ impl SourceDocument {
             redo: Vec::new(),
             worker: None,
             building: false,
+            optimizing: None,
+            optimization_errors: BTreeMap::new(),
         };
         document.refresh();
         document
@@ -161,6 +234,15 @@ impl SourceDocument {
             worker.cancel();
         }
         self.building = false;
+        if let Some(part) = self.optimizing.take() {
+            if let Some(project) = &mut self.project {
+                project
+                    .snapshot
+                    .optimization_states
+                    .insert(part, OptimizationState::Cancelled);
+            }
+            return;
+        }
         self.diagnostics = vec![Diagnostic::error(
             "E321",
             "CAD build cancelled",
@@ -169,11 +251,111 @@ impl SourceDocument {
     }
 
     pub fn poll_compilation(&mut self) -> bool {
+        self.poll_optimization_progress();
         let Some(result) = self.worker.as_ref().and_then(CompilationWorker::poll) else {
             return false;
         };
-        self.accept_result(result);
+        if let Some(part) = self.optimizing.take() {
+            self.building = false;
+            match result {
+                Ok(project) => self.project = Some(project),
+                Err(diagnostics) => {
+                    self.optimization_errors.insert(part, diagnostics);
+                    if let Some(project) = &mut self.project {
+                        project
+                            .snapshot
+                            .optimization_states
+                            .insert(part, OptimizationState::Failed);
+                    }
+                }
+            }
+        } else {
+            self.accept_result(result);
+        }
         true
+    }
+
+    pub fn optimization_diagnostics(&self, part: PartId) -> &[Diagnostic] {
+        self.optimization_errors
+            .get(&part)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    pub fn poll_optimization_progress(&mut self) -> bool {
+        let Some((part, diagnostic)) = self
+            .worker
+            .as_ref()
+            .and_then(CompilationWorker::poll_diagnostic)
+        else {
+            return false;
+        };
+        if self.optimizing != Some(part) || !self.building {
+            return false;
+        }
+        let Some(project) = &mut self.project else {
+            return false;
+        };
+        project
+            .snapshot
+            .mass_diagnostics
+            .insert(diagnostic.id, diagnostic);
+        true
+    }
+
+    pub fn start_optimization(
+        &mut self,
+        part: PartId,
+        settings: ExecutionSettings,
+    ) -> Result<(), Diagnostic> {
+        let error = |message: &str| Diagnostic::error("E330", message, SourceSpan::default());
+        if !self.is_valid || self.building {
+            return Err(error(
+                "Document unavailable or another operation is running",
+            ));
+        }
+        self.enable_background_compilation()
+            .map_err(|_| error("Worker unavailable"))?;
+        let project = self
+            .project
+            .as_mut()
+            .ok_or_else(|| error("No prepared document"))?;
+        if !project.snapshot.preparation.contains_key(&part) {
+            return Err(error("Part has no topology declaration"));
+        }
+        let ids: Vec<_> = project
+            .snapshot
+            .model
+            .parts
+            .values()
+            .filter(|item| item.id == part)
+            .flat_map(part_operations)
+            .map(|operation| operation.id)
+            .collect();
+        for id in ids {
+            project.snapshot.topology.remove(&id);
+            project.snapshot.mass_diagnostics.remove(&id);
+        }
+        project.snapshot.meshes.remove(&part);
+        project
+            .snapshot
+            .optimization_states
+            .insert(part, OptimizationState::Running);
+        self.optimization_errors.remove(&part);
+        let worker = self
+            .worker
+            .as_ref()
+            .ok_or_else(|| error("Worker unavailable"))?;
+        self.building = worker.optimize(project.clone(), part, settings);
+        if !self.building {
+            project
+                .snapshot
+                .optimization_states
+                .insert(part, OptimizationState::Failed);
+            return Err(error("Worker unavailable"));
+        }
+        self.optimizing = Some(part);
+        Ok(())
     }
 
     /// Last successfully built project, possibly stale when `is_valid()` is false.
@@ -240,6 +422,11 @@ impl SourceDocument {
     }
 
     fn refresh(&mut self) {
+        self.optimizing = None;
+        self.optimization_errors.clear();
+        if let Some(project) = &mut self.project {
+            project.invalidate_topology();
+        }
         if let Some(worker) = &self.worker {
             self.is_valid = false;
             self.diagnostics.clear();
@@ -259,7 +446,16 @@ impl SourceDocument {
     fn accept_result(&mut self, result: Result<Project, Vec<Diagnostic>>) {
         self.building = false;
         match result {
-            Ok(project) => {
+            Ok(mut project) => {
+                if let Some(previous) = &self.project {
+                    for (id, state) in &mut project.snapshot.optimization_states {
+                        if previous.snapshot.optimization_states.get(id)
+                            == Some(&OptimizationState::Obsolete)
+                        {
+                            *state = OptimizationState::Obsolete;
+                        }
+                    }
+                }
                 self.project = Some(project);
                 self.diagnostics.clear();
                 self.is_valid = true;
@@ -298,18 +494,30 @@ impl Project {
             return Err(diagnostics);
         }
         solve_constraints(&mut model, &mut diagnostics);
-        let meshes = build_all_meshes(&model, revision, &mut diagnostics, cancelled, progress);
+        let (meshes, preparation) =
+            build_all_meshes(&model, revision, &mut diagnostics, cancelled, progress);
         if diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
         {
             return Err(diagnostics);
         }
+        let optimization_states = preparation
+            .keys()
+            .map(|id| (*id, OptimizationState::NotCalculated))
+            .collect();
         Ok(Self {
             source,
             ast,
             overrides: BTreeMap::new(),
-            snapshot: ProjectSnapshot { model, meshes },
+            snapshot: ProjectSnapshot {
+                model,
+                meshes,
+                topology: BTreeMap::new(),
+                mass_diagnostics: BTreeMap::new(),
+                preparation,
+                optimization_states,
+            },
         })
     }
 
@@ -324,6 +532,319 @@ impl Project {
     }
     pub fn snapshot(&self) -> &ProjectSnapshot {
         &self.snapshot
+    }
+
+    pub fn topology_operations(
+        &self,
+        part: PartId,
+    ) -> Vec<&robogen_ir::topology::TopologySpec<SolidGeometry>> {
+        self.snapshot
+            .model
+            .parts
+            .values()
+            .find(|item| item.id == part)
+            .map(part_operations)
+            .unwrap_or_default()
+    }
+
+    pub fn optimize_part(
+        &mut self,
+        part_id: PartId,
+        settings: &ExecutionSettings,
+        revision: u64,
+        cancelled: &dyn Fn() -> bool,
+        progress: &dyn Fn(usize, usize),
+    ) -> Result<(), Vec<Diagnostic>> {
+        self.optimize_part_with_diagnostics(
+            part_id,
+            settings,
+            revision,
+            cancelled,
+            progress,
+            &|_| {},
+        )
+    }
+
+    fn optimize_part_with_diagnostics(
+        &mut self,
+        part_id: PartId,
+        settings: &ExecutionSettings,
+        revision: u64,
+        cancelled: &dyn Fn() -> bool,
+        progress: &dyn Fn(usize, usize),
+        diagnostic: &dyn Fn(&MassDiagnostic),
+    ) -> Result<(), Vec<Diagnostic>> {
+        let part = self
+            .snapshot
+            .model
+            .parts
+            .values()
+            .find(|part| part.id == part_id)
+            .ok_or_else(|| {
+                vec![Diagnostic::error(
+                    "E330",
+                    "Unknown optimization part",
+                    SourceSpan::default(),
+                )]
+            })?;
+        let operations = part_operations(part);
+        if operations.is_empty() {
+            return Err(vec![Diagnostic::error(
+                "E330",
+                "Part has no topology declaration",
+                part.source_span,
+            )]);
+        }
+        if operations
+            .iter()
+            .any(|spec| spec.objective == TopologyObjective::MinimizeMass)
+        {
+            if operations.len() != 1 {
+                return Err(vec![Diagnostic::error(
+                    "E348",
+                    "Mass diagnostics currently require one topology operation per part",
+                    part.source_span,
+                )]);
+            }
+            let specification = operations[0];
+            let issues = specification.preparation_issues();
+            if !issues.is_empty() {
+                return Err(vec![Diagnostic::error(
+                    "E347",
+                    format!("Incomplete topology preparation: {}", issues.join("; ")),
+                    specification.span,
+                )]);
+            }
+            let material = self
+                .snapshot
+                .model
+                .materials
+                .values()
+                .find(|material| Some(material.id) == specification.material)
+                .ok_or_else(|| {
+                    vec![Diagnostic::error(
+                        "E330",
+                        "Topology material is missing",
+                        specification.span,
+                    )]
+                })?;
+            let request = TopologyRequest {
+                specification: specification.clone(),
+                material: material.clone(),
+                document_revision: revision,
+            };
+            let result =
+                robogen_topopt::mass::diagnose_mass(&request, settings, cancelled, &mut |event| {
+                    progress(
+                        event.history.len().min(settings.max_iterations),
+                        settings.max_iterations,
+                    );
+                    diagnostic(event);
+                })
+                .map_err(|error| {
+                    vec![Diagnostic::error(
+                        "E330",
+                        format!("{}: {}", error.diagnostic.code, error.diagnostic.message),
+                        request.specification.span,
+                    )]
+                })?;
+            if cancelled() {
+                return Err(vec![Diagnostic::error(
+                    "E345",
+                    "Mass calculation cancelled",
+                    request.specification.span,
+                )]);
+            }
+            self.snapshot.topology.remove(&result.id);
+            self.snapshot.mass_diagnostics.insert(result.id, result);
+            self.snapshot.meshes.remove(&part_id);
+            self.snapshot
+                .optimization_states
+                .insert(part_id, OptimizationState::Diagnostic);
+            return Ok(());
+        }
+        let mut diagnostics = Vec::new();
+        let (resolved, reports) = resolve_topology(
+            &self.snapshot.model,
+            operations,
+            settings,
+            revision,
+            &mut diagnostics,
+            cancelled,
+            progress,
+        );
+        if !diagnostics.is_empty() {
+            return Err(diagnostics);
+        }
+        let mesh = build_part_mesh_cancellable(
+            &self.snapshot.model,
+            part,
+            &ResolvedTopologyKernel { meshes: &resolved },
+            cancelled,
+        )
+        .map_err(|error| {
+            vec![Diagnostic::error(
+                "E320",
+                error.to_string(),
+                part.source_span,
+            )]
+        })?;
+        if cancelled() {
+            return Err(vec![Diagnostic::error(
+                "E321",
+                "Optimization cancelled",
+                part.source_span,
+            )]);
+        }
+        self.snapshot.meshes.insert(part_id, mesh);
+        self.snapshot.topology.extend(reports);
+        self.snapshot
+            .optimization_states
+            .insert(part_id, OptimizationState::Calculated);
+        Ok(())
+    }
+
+    pub fn diagnostic_mesh(
+        &self,
+        part_id: PartId,
+        threshold: f64,
+        reference: bool,
+    ) -> Result<Mesh, robogen_cad::CadError> {
+        use robogen_cad::{CadKernel, NativeCadKernel};
+        let Some(part) = self
+            .snapshot
+            .model
+            .parts
+            .values()
+            .find(|part| part.id == part_id)
+        else {
+            return Ok(Mesh::default());
+        };
+        if !threshold.is_finite() || !(0.0..=1.0).contains(&threshold) {
+            return Err(robogen_cad::CadError::InvalidSolid {
+                span: part.source_span,
+                reason: "Invalid diagnostic threshold".into(),
+            });
+        }
+        let mut resolved = BTreeMap::new();
+        for operation in part_operations(part) {
+            let Some(diagnostic) = self.snapshot.mass_diagnostics.get(&operation.id) else {
+                continue;
+            };
+            let densities = if reference {
+                &diagnostic.reference_densities
+            } else {
+                &diagnostic.densities
+            };
+            let spacing: [Length; 3] = std::array::from_fn(|axis| {
+                Length::from_metres(
+                    diagnostic.dimensions[axis].metres() / diagnostic.cells[axis] as f64,
+                )
+            });
+            let cube = NativeCadKernel.solid(&SolidGeometry {
+                span: diagnostic.span,
+                operation: robogen_ir::SolidOperation::Box { size: spacing },
+            })?;
+            let mut mesh = Mesh::default();
+            let mut shared_vertices = BTreeMap::new();
+            let corners: Vec<[usize; 3]> = cube
+                .vertices
+                .iter()
+                .map(|vertex| std::array::from_fn(|axis| usize::from(vertex.position[axis] > 0.0)))
+                .collect();
+            for (index, density) in densities.iter().enumerate() {
+                if *density <= 0.0 || *density < threshold {
+                    continue;
+                }
+                let position = [
+                    index / (diagnostic.cells[1] * diagnostic.cells[2]),
+                    index / diagnostic.cells[2] % diagnostic.cells[1],
+                    index % diagnostic.cells[2],
+                ];
+                let color =
+                    if diagnostic.regions[index] == robogen_topopt::simp::CellRegion::Preserve {
+                        [75, 215, 120]
+                    } else {
+                        [
+                            45,
+                            (130.0 + 95.0 * density) as u8,
+                            (235.0 - 80.0 * density) as u8,
+                        ]
+                    };
+                for triangle in &cube.triangles {
+                    let face = triangle.indices.map(|index| corners[index as usize]);
+                    let hidden = (0..3).any(|axis| {
+                        let side = face[0][axis];
+                        if !face.iter().all(|corner| corner[axis] == side) {
+                            return false;
+                        }
+                        let mut neighbor = position;
+                        if side == 0 {
+                            if position[axis] == 0 {
+                                return false;
+                            }
+                            neighbor[axis] -= 1;
+                        } else {
+                            if position[axis] + 1 == diagnostic.cells[axis] {
+                                return false;
+                            }
+                            neighbor[axis] += 1;
+                        }
+                        let neighbor_index = (neighbor[0] * diagnostic.cells[1] + neighbor[1])
+                            * diagnostic.cells[2]
+                            + neighbor[2];
+                        densities[neighbor_index] > 0.0 && densities[neighbor_index] >= threshold
+                    });
+                    if hidden {
+                        continue;
+                    }
+                    let indices = face.map(|corner| {
+                        let node: [usize; 3] =
+                            std::array::from_fn(|axis| position[axis] + corner[axis]);
+                        *shared_vertices.entry(node).or_insert_with(|| {
+                            let index = mesh.vertices.len() as u32;
+                            mesh.vertices.push(robogen_cad::Vertex {
+                                position: std::array::from_fn(|axis| {
+                                    (diagnostic.origin[axis].metres()
+                                        + node[axis] as f64 * spacing[axis].metres())
+                                        as f32
+                                }),
+                            });
+                            index
+                        })
+                    });
+                    mesh.triangles.push(robogen_cad::Triangle {
+                        indices,
+                        color: Some(color),
+                    });
+                }
+            }
+            resolved.insert(operation.id, mesh);
+        }
+        if resolved.is_empty() {
+            return Ok(Mesh::default());
+        }
+        build_part_mesh(
+            &self.snapshot.model,
+            part,
+            &ResolvedTopologyKernel { meshes: &resolved },
+        )
+    }
+
+    fn invalidate_topology(&mut self) {
+        self.snapshot.topology.clear();
+        self.snapshot.mass_diagnostics.clear();
+        for (id, state) in &mut self.snapshot.optimization_states {
+            self.snapshot.meshes.remove(id);
+            if matches!(
+                state,
+                OptimizationState::Calculated
+                    | OptimizationState::Running
+                    | OptimizationState::Diagnostic
+            ) {
+                *state = OptimizationState::Obsolete;
+            }
+        }
     }
 
     pub fn set_parameter(
@@ -375,15 +896,48 @@ impl Project {
             return Err(diagnostics);
         }
 
-        reject_unresolved_topology(&model, 0, &mut diagnostics, &|| false);
-        if !diagnostics.is_empty() {
-            return Err(diagnostics);
+        if !model.topology_operations().is_empty() {
+            let (meshes, preparation) =
+                build_all_meshes(&model, 0, &mut diagnostics, &|| false, &|_, _| {});
+            if !diagnostics.is_empty() {
+                return Err(diagnostics);
+            }
+            self.invalidate_topology();
+            let optimization_states = preparation
+                .keys()
+                .map(|id| {
+                    (
+                        *id,
+                        self.snapshot
+                            .optimization_states
+                            .get(id)
+                            .copied()
+                            .unwrap_or(OptimizationState::NotCalculated),
+                    )
+                })
+                .collect();
+            self.snapshot = ProjectSnapshot {
+                model,
+                meshes,
+                preparation,
+                optimization_states,
+                topology: BTreeMap::new(),
+                mass_diagnostics: BTreeMap::new(),
+            };
+            return Ok(RebuildReport {
+                rebuilt: dirty.into_iter().collect(),
+            });
         }
+        let resolved = BTreeMap::new();
         let mut meshes = self.snapshot.meshes.clone();
         for node in &dirty {
             if let DirtyNode::Part(name) = node {
                 if let Some(part) = model.parts.get(name) {
-                    match build_part_mesh(&model, part, &NativeCadKernel) {
+                    match build_part_mesh(
+                        &model,
+                        part,
+                        &ResolvedTopologyKernel { meshes: &resolved },
+                    ) {
                         Ok(mesh) => {
                             meshes.insert(part.id, mesh);
                         }
@@ -402,7 +956,14 @@ impl Project {
         {
             return Err(diagnostics);
         }
-        self.snapshot = ProjectSnapshot { model, meshes };
+        self.snapshot = ProjectSnapshot {
+            model,
+            meshes,
+            topology: BTreeMap::new(),
+            mass_diagnostics: BTreeMap::new(),
+            preparation: BTreeMap::new(),
+            optimization_states: BTreeMap::new(),
+        };
         Ok(RebuildReport {
             rebuilt: dirty.into_iter().collect(),
         })
@@ -422,25 +983,46 @@ fn solve_constraints(model: &mut SemanticModel, diagnostics: &mut Vec<Diagnostic
     }
 }
 
-fn reject_unresolved_topology(
+fn resolve_topology(
     model: &SemanticModel,
+    operations: Vec<&robogen_ir::topology::TopologySpec<SolidGeometry>>,
+    settings: &ExecutionSettings,
     revision: u64,
     diagnostics: &mut Vec<Diagnostic>,
     cancelled: &dyn Fn() -> bool,
+    progress: &dyn Fn(usize, usize),
+) -> (
+    BTreeMap<OptimizationId, Mesh>,
+    BTreeMap<OptimizationId, TopologyReport>,
 ) {
-    for specification in model.topology_operations() {
+    let mut resolved = BTreeMap::new();
+    let mut reports = BTreeMap::new();
+    let total = operations.len();
+    for (index, specification) in operations.into_iter().enumerate() {
+        if resolved.contains_key(&specification.id) {
+            continue;
+        }
         if cancelled() {
             diagnostics.push(Diagnostic::error(
                 "E321",
                 "build cancelled",
                 specification.span,
             ));
-            return;
+            return (resolved, reports);
+        }
+        let issues = specification.preparation_issues();
+        if !issues.is_empty() {
+            diagnostics.push(Diagnostic::error(
+                "E347",
+                format!("Incomplete topology preparation: {}", issues.join("; ")),
+                specification.span,
+            ));
+            continue;
         }
         let Some(material) = model
             .materials
             .values()
-            .find(|material| material.id == specification.material)
+            .find(|material| Some(material.id) == specification.material)
         else {
             diagnostics.push(Diagnostic::error(
                 "E330",
@@ -454,47 +1036,133 @@ fn reject_unresolved_topology(
             material: material.clone(),
             document_revision: revision,
         };
-        let message = match UnavailableTopologyOptimizer.optimize(&request) {
-            Err(error) => format!(
-                "topology `{}`: {error}; no optimized geometry generated",
-                specification.name
-            ),
-            Ok(_) => "topology result publication is not implemented".to_owned(),
-        };
-        diagnostics.push(Diagnostic::error("E330", message, specification.span));
+        match execute_topology(&request, settings, &FaerSolver, cancelled, &mut |_| {
+            progress(index, total)
+        }) {
+            Ok(result) => {
+                reports.insert(
+                    specification.id,
+                    TopologyReport {
+                        name: specification.name.clone(),
+                        span: specification.span,
+                        material: material.id,
+                        document_revision: revision,
+                        settings: settings.clone(),
+                        solver_backend: result.solid.solver_backend.clone(),
+                        origin: result.origin,
+                        domain_cells: result.domain_cells,
+                        iterations: result.optimization.history.len().saturating_sub(1),
+                        volume_fraction: result.solid.volume_fraction,
+                        mass: result.mass,
+                        cases: result
+                            .solid
+                            .analyses
+                            .iter()
+                            .zip(&result.max_displacements)
+                            .map(|(case, (_, displacement))| TopologyCaseReport {
+                                id: case.id,
+                                span: case.span,
+                                compliance: case.analysis.compliance,
+                                relative_residual: case.analysis.relative_residual,
+                                max_displacement: *displacement,
+                            })
+                            .collect(),
+                    },
+                );
+                let mesh = Mesh {
+                    vertices: result
+                        .solid
+                        .surface
+                        .vertices()
+                        .iter()
+                        .map(|point| robogen_cad::Vertex {
+                            position: std::array::from_fn(|axis| {
+                                (point[axis].metres() + result.origin[axis].metres()) as f32
+                            }),
+                        })
+                        .collect(),
+                    triangles: result
+                        .solid
+                        .surface
+                        .triangles()
+                        .iter()
+                        .map(|indices| robogen_cad::Triangle {
+                            indices: *indices,
+                            color: None,
+                        })
+                        .collect(),
+                };
+                resolved.insert(specification.id, mesh);
+            }
+            Err(error) => diagnostics.push(Diagnostic::error(
+                "E330",
+                format!(
+                    "topology `{}`: {}: {}; no optimized geometry published",
+                    specification.name, error.diagnostic.code, error.diagnostic.message
+                ),
+                error.diagnostic.span,
+            )),
+        }
+        progress(index + 1, total);
     }
+    (resolved, reports)
 }
 
 fn build_all_meshes(
     model: &SemanticModel,
-    revision: u64,
+    _revision: u64,
     diagnostics: &mut Vec<Diagnostic>,
     cancelled: &dyn Fn() -> bool,
     progress: &dyn Fn(usize, usize),
-) -> BTreeMap<PartId, Mesh> {
+) -> (BTreeMap<PartId, Mesh>, BTreeMap<PartId, [Mesh; 3]>) {
     let mut meshes = BTreeMap::new();
-    progress(0, model.parts.len());
-    reject_unresolved_topology(model, revision, diagnostics, cancelled);
-    if !diagnostics.is_empty() {
-        return meshes;
-    }
+    let mut preparation = BTreeMap::new();
+    let total = model.parts.len();
+    progress(0, total);
     for (index, part) in model.parts.values().enumerate() {
-        match build_part_mesh_cancellable(model, part, &NativeCadKernel, cancelled) {
-            Ok(mesh) => {
-                meshes.insert(part.id, mesh);
+        if !part_operations(part).is_empty() {
+            let mut layers: [Mesh; 3] = std::array::from_fn(|_| Mesh::default());
+            for feature in &part.features {
+                if let Feature::Solid { geometry, .. } = feature {
+                    match robogen_cad::topology_preview(geometry, cancelled) {
+                        Ok(projected) => {
+                            for (layer, mesh) in layers.iter_mut().zip(projected) {
+                                layer.append(&mesh);
+                            }
+                        }
+                        Err(error) => diagnostics.push(Diagnostic::error(
+                            "E320",
+                            error.to_string(),
+                            part.source_span,
+                        )),
+                    }
+                }
             }
-            Err(error) => diagnostics.push(Diagnostic::error(
-                "E320",
-                error.to_string(),
-                part.source_span,
-            )),
+            preparation.insert(part.id, layers);
+        } else {
+            match build_part_mesh_cancellable(model, part, &robogen_cad::NativeCadKernel, cancelled)
+            {
+                Ok(mesh) => {
+                    meshes.insert(part.id, mesh);
+                }
+                Err(error) => diagnostics.push(Diagnostic::error(
+                    "E320",
+                    error.to_string(),
+                    part.source_span,
+                )),
+            }
         }
-        progress(index + 1, model.parts.len());
+        progress(index + 1, total);
         if cancelled() {
+            diagnostics.push(Diagnostic::error(
+                "E321",
+                "Preparation cancelled",
+                part.source_span,
+            ));
             break;
         }
     }
-    meshes
+    (meshes, preparation)
 }
 
 fn dependencies_for<'a>(
@@ -594,6 +1262,32 @@ fn quantity_expr(value: Quantity, span: SourceSpan) -> Expr {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn topology_execution_cancels_before_publication() -> Result<(), Vec<Diagnostic>> {
+        let calls = std::cell::Cell::new(0);
+        let mut project =
+            Project::from_source(include_str!("../../../examples/topology_manual/main.rgn"))?;
+        let part = *project
+            .snapshot()
+            .preparation
+            .keys()
+            .next()
+            .ok_or_else(Vec::new)?;
+        let result = project.optimize_part(
+            part,
+            &topology_settings(),
+            7,
+            &|| calls.get() > 2,
+            &|_, _| calls.set(calls.get() + 1),
+        );
+        let diagnostics = result.err().ok_or_else(Vec::new)?;
+        assert!(diagnostics
+            .iter()
+            .any(|error| error.message.contains("E345")));
+        assert!(project.snapshot().meshes.is_empty());
+        Ok(())
+    }
+
     use super::*;
     use robogen_domain::Length;
     const SOURCE: &str = r#"module demo;
@@ -693,6 +1387,60 @@ part Body { material: PLA; base = extrude(Profile, DEPTH); }"#;
         assert!(document.redo());
         assert!(document.is_valid());
         assert!(document.diagnostics().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn fine_density_preview_removes_internal_faces_without_changing_bounds() -> Result<(), String> {
+        let mut project =
+            Project::from_source(include_str!("../../../examples/topology_manual/main.rgn"))
+                .map_err(|errors| format!("{errors:?}"))?;
+        let part = *project
+            .snapshot
+            .preparation
+            .keys()
+            .next()
+            .ok_or("missing part")?;
+        let operation = project.topology_operations(part)[0].clone();
+        let cells = [48, 16, 8];
+        project.snapshot.mass_diagnostics.insert(
+            operation.id,
+            MassDiagnostic {
+                compute_backend: ComputeBackend::Cpu,
+                id: operation.id,
+                name: operation.name,
+                span: operation.span,
+                document_revision: 0,
+                origin: [Length::from_metres(0.0); 3],
+                dimensions: [0.12, 0.04, 0.02].map(Length::from_metres),
+                cells,
+                regions: vec![robogen_topopt::simp::CellRegion::Design; 6144],
+                densities: vec![1.0; 6144],
+                reference_densities: vec![1.0; 6144],
+                mass: Mass::from_kilograms(0.2592),
+                reference_mass: Mass::from_kilograms(0.2592),
+                cases: Vec::new(),
+                history: Vec::new(),
+                finished: false,
+                feasible: false,
+                converged: false,
+                kkt_residual: None,
+            },
+        );
+        let mesh = project
+            .diagnostic_mesh(part, 0.35, false)
+            .map_err(|error| error.to_string())?;
+        assert_eq!(mesh.triangles.len(), 4 * (48 * 16 + 48 * 8 + 16 * 8));
+        assert!(mesh.vertices.len() < 3000);
+        for (axis, expected) in [0.12_f32, 0.04, 0.02].into_iter().enumerate() {
+            let maximum = mesh
+                .vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!((maximum - expected).abs() < 1e-6);
+        }
+        assert!(project.snapshot.meshes.is_empty());
         Ok(())
     }
 

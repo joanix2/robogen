@@ -165,10 +165,11 @@ impl LowerContext<'_> {
             return None;
         }
         let qualified = format!("{}::topology::{name}", self.feature_key);
+        let draft = matches!(&fields[4].kind, ExprKind::Reference(name) if name == "unknown");
         let domain = self.topology_solid(fields[1], scope)?;
         let mut preserve = Vec::new();
         let mut interfaces = BTreeMap::new();
-        for entry in self.topology_list(fields[2], 1, 64)? {
+        for entry in self.topology_list(fields[2], usize::from(!draft), 64)? {
             let (interface, geometry) = if let ExprKind::Call { name, args } = &entry.kind {
                 if name == "interface" {
                     let values = self.topology_args(args, &["name", "shape"], entry.span)?;
@@ -210,24 +211,28 @@ impl LowerContext<'_> {
             );
             return None;
         };
-        let Some(material) = self.materials.get(material_name) else {
-            self.error(
-                "E255",
-                format!("unknown topology material `{material_name}`"),
-                fields[4].span,
-            );
-            return None;
+        let material = if draft {
+            None
+        } else {
+            let Some(material) = self.materials.get(material_name) else {
+                self.error(
+                    "E255",
+                    format!("unknown topology material `{material_name}`"),
+                    fields[4].span,
+                );
+                return None;
+            };
+            if material.density.kg_per_m3() <= 0.0
+                || material.young_modulus.pascals() <= 0.0
+                || material.yield_strength.pascals() <= 0.0
+                || !(-1.0..0.5).contains(&material.poisson_ratio)
+                || material.poisson_ratio == -1.0
+            {
+                self.error("E255", "topology material requires positive density/Young/yield strength and -1 < poisson < 0.5", fields[4].span);
+                return None;
+            }
+            Some(material.id)
         };
-        if material.density.kg_per_m3() <= 0.0
-            || material.young_modulus.pascals() <= 0.0
-            || material.yield_strength.pascals() <= 0.0
-            || !(-1.0..0.5).contains(&material.poisson_ratio)
-            || material.poisson_ratio == -1.0
-        {
-            self.error("E255", "topology material requires positive density/Young/yield strength and -1 < poisson < 0.5", fields[4].span);
-            return None;
-        }
-        let material = material.id;
         let objective = match &fields[6].kind {
             ExprKind::Reference(name) if name == "minimize_mass" => Objective::MinimizeMass,
             ExprKind::Reference(name) if name == "maximize_stiffness" => {
@@ -244,7 +249,7 @@ impl LowerContext<'_> {
         };
         let mut load_cases = Vec::new();
         let mut names = BTreeSet::new();
-        for entry in self.topology_list(fields[5], 1, 16)? {
+        for entry in self.topology_list(fields[5], usize::from(!draft), 16)? {
             let (constructor, args) = self.topology_call(entry)?;
             if constructor != "load_case" {
                 self.error("E250", "expected load_case(...) declaration", entry.span);
@@ -329,7 +334,7 @@ impl LowerContext<'_> {
         }
         let mut constraints = Vec::new();
         let mut seen = BTreeSet::new();
-        for entry in self.topology_list(fields[7], 1, 16)? {
+        for entry in self.topology_list(fields[7], usize::from(!draft), 16)? {
             let (name, args) = self.topology_call(entry)?;
             if !seen.insert(name) {
                 self.error("E254", "duplicate constraint", entry.span);

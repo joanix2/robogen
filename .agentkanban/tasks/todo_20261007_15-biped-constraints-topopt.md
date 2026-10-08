@@ -88,3 +88,123 @@ Les objectifs/contraintes absents et la publication desktop restent ouverts.
 
 - [x] Declarer et installer rust-analyzer compatible avec Rust 1.88.0.
 - [x] Verifier la selection, les commandes locales et documenter le rechargement.
+
+# Iteration 8 - Raccordement des resultats au document
+
+- [x] Composer les maillages reanalyses sous transformations/couleurs/compound, refuser les booleens aval.
+- [x] Executer les declarations supportees dans Project/worker avec revision, annulation et rapports.
+- [x] Verifier publication, historique, diagnostics et parcours natif.
+- [ ] Raccorder les supports du bipede uniquement avec interfaces et charges explicites ; signaler les inconnues.
+
+Validation : 144 tests workspace, fmt, Clippy -D warnings, build desktop,
+capture native 1080x680 et controle 1080x831 passes. Choix utilisateur : fixations
+exactes. DSL servo relu : pattes/trous/arbre cotes, palonnier/cannelures/vis absents.
+La derniere acceptance reste bloquee ; ne pas marquer le bipede assemble.
+
+# Iteration 9 - Preparation et calcul explicite par piece
+
+- [x] Projeter domaine/preserve/keepout sans solveur, hors maillages exportables.
+- [x] Lancer une piece dans le worker, conserver les autres resultats et gerer les etats/revisions.
+- [x] Afficher couches et selection/reglages/lancement/resultats dans les vues natives.
+- [x] Verifier absence de calcul implicite, independance, annulation, invalidation et export.
+- [x] Actualiser documentation, gates et verification native.
+
+Validation iteration 9 : 149 tests workspace, fmt, Clippy -D warnings, build
+desktop et diagnostics editeur passes. Captures natives de preparation,
+selection et resultat explicite ; clics de masquage/lancement verifies.
+Edition conservative : tout changement DSL invalide tous les resultats TopOpt.
+Interfaces/charges/materiaux modifies via DSL, reglages numeriques dans le panneau.
+Objectif supports du bipede toujours ouvert, aucune nouvelle capacite du solveur.
+
+# Priorite utilisateur - Minimiser la masse (2026-10-08)
+
+Cette priorite remplace l'ordre de prototype compliance/volume propose dans la
+conversation : le choix de bibliotheque est subordonne a l'objectif minimize_mass.
+
+- [ ] Selectionner un backend existant capable de minimiser la masse sous les contraintes requises ; Scikit-Topt est candidat, non impose.
+- [ ] Definir une reference faisable, les cas de charge, limites mecaniques/fabrication et tolerances ; signaler les donnees physiques manquantes.
+- [ ] Valider un premier probleme minimize_mass, avec preserve/keepout et controle de chaque contrainte pour chaque cas, sans substitution par maximisation de rigidite a volume fixe.
+- [ ] Comparer masses avant/apres et reanalyser le solide reconstruit avant publication ; rapporter convergence et limites, sans garantie de minimum global.
+- [ ] Tester refus de capacites absentes et diagnostic d'infaisabilite ; ne pas relacher les contraintes pour obtenir un resultat.
+
+# Cible de travail confirmee - Mini bipede (2026-10-08)
+
+La livraison et la demonstration doivent porter sur examples/mini_biped/main.rgn,
+pas sur une piece de test autonome. Garder les benchmarks comme tests internes.
+
+- [ ] Preparer les domaines/preserve/keepout des supports dans les reperes du bipede existant, sans modifier les composants achetes ni inventer les fixations.
+- [ ] Afficher la preparation dans Conception sur ce robot, sans calcul automatique ni faux support exportable.
+- [ ] Traiter le premier support de reference (camera) dans cette scene ; diagnostiquer les donnees mecaniques encore manquantes avant calcul.
+- [ ] Demonstrer selection, minimisation de masse, reanalyse et publication par support dans Optimisation sur le bipede, puis etendre aux autres supports.
+
+# Iteration 10 - Preparation incomplete dans la scene du bipede
+
+- [x] Documenter schema 2 et materiau inconnu explicite, sans donnees physiques inventees.
+- [x] Ajouter onze preparations dans mini_biped en conservant les 17 composants et leurs placements.
+- [x] Construire domaines parametrables, contacts aux trous connus et exclusions locales ; verifier les bornes des contacts.
+- [x] Refuser le calcul incomplet E347 dans Project/CLI/TopOpt ; afficher les manques et bloquer lancement/export dans l'UI.
+- [x] Tester trois couches, selection camera, historique, revision et absence de resultats automatiques ; passer fmt/Clippy/tests workspace/build.
+- [x] Capturer le bipede prepare en natif 1080x680 ; documenter que les clics XTest n'ont pas valide le parcours manuel.
+- [ ] Completer interfaces articulaires, volumes de mouvement/outillage/cables et separation des domaines : la preparation ne suffit pas a valider l'assemblage.
+- [ ] Renseigner materiau, cas de charges et limites verifies puis integrer le moteur minimize_mass ; calculer et reanalyser le premier support reel.
+
+# Iteration 11 - Qualification minimum de masse et donnees sourcées
+
+Autorisation : « Implémentez et va chercher les informations sur Internet nécessaires. »
+Le plan en six lots est applique ; LeftShinSupport remplace la camera comme
+premiere livraison mecanique. Les benchmarks restent des tests internes.
+
+- [x] Installer un environnement local verrouille TopOpt.jl et executer un test 3D de minimisation de masse avec regions imposees.
+- [ ] Qualifier deplacements, contraintes, cas independants, filtrage, convergence et refus ; documenter les capacites non prouvees.
+- [x] Sourcer les donnees materiel, distinguer reference candidate et identification confirmee ; ne pas inventer les interfaces.
+- [ ] Completer montage et donnees physiques de LeftShinSupport (lots 1 et 2).
+- [ ] Raccorder le moteur qualifie au port numerique et worker existants (lot 4).
+- [ ] Reanalyser puis publier le tibia gauche dans le bipede (lot 5), avant extension aux jambes (lot 6).
+
+Validation partielle : smoke test compliance/masse 7/7 ; deplacements filtres
+multi-cas 13/16, trois echecs de faisabilite/convergence encore presents a 500
+iterations. Candidat non qualifie. Gates Rust passes. Details, reproductions et
+deux correctifs amont limites dans backends/topopt-jl/README.md. Aucun commit de
+cloture, aucun support du robot calcule ; lots 1/2 et 4/5/6 restent ouverts.
+
+# Iteration 12 - Resultat graphique demande
+
+- [ ] Exporter les donnees du calcul reel et ses coordonnees, sans changer les limites.
+- [ ] Afficher densites 3D, masses, deplacements et convergence dans un rapport interactif explicitement non valide.
+- [ ] Verifier le rendu, fournir une capture et ouvrir le resultat graphique.
+
+# Iteration 13 - Correction de l'integration native
+
+- [x] Decoupler projection et objectif OC, verifier conservation des masques et charges.
+- [x] Raccorder les problemes declares au processus Julia local ; borner protocole, erreurs, revisions et annulation.
+- [x] Conserver densites/metriques de diagnostic hors des resultats exportables et les afficher dans Optimisation native.
+- [x] Verifier tests du transport, parcours worker, invalidation et absence de publication d'un candidat non qualifie.
+- [ ] Lancer le bipede dans RoboGen, verifier la vue native et documenter exactement les calculs possibles/manquants.
+- [ ] Passer les gates Rust et actualiser les documents sans cloturer la qualification mecanique ou les supports incomplets.
+
+# Iteration 14 - Precision physique du maillage
+
+- [x] Separer budget de projection masse et FEM historique, tester maille de 2.5 mm et conservation des charges.
+- [x] Executer le moteur Julia a 6144 cellules et mesurer temps/memoire, sans pretendre a la convergence.
+- [x] Verifier le GPU autorise et la disponibilite reelle du chemin CUDA de TopOpt.
+- [x] Exposer maille cible/XYZ, taille reelle et budget dans l'interface native.
+- [x] Verifier l'affichage de grilles fines et les regressions, documenter les limites restantes.
+- [ ] Qualifier un adaptateur GPU avant d'annoncer une acceleration du calcul.
+
+# Iteration 15 - Hypotheses PLA autorisees pour le tibia gauche
+
+- [x] Renseigner PLA et parametres mecaniques explicitement estimes dans le DSL reel.
+- [x] Declarer une liaison proximale ideale et deux cas de charge, sans modifier les servos achetes.
+- [x] Tester la projection a la resolution native et documenter les limites des fixations.
+- [x] Verifier le projet et afficher les hypotheses dans RoboGen natif.
+
+# Iteration 16 - Acceleration GPU mesuree
+
+- [x] Tester un solveur sparse CUDA Float64 et son refus des resolutions invalides.
+- [x] Comparer deplacements et gradients CPU/GPU sur les memes problemes FEM.
+- [x] Mesurer le cout sur la grille du tibia sans modifier les hypotheses.
+- [x] Raccorder le choix de backend et sa provenance au diagnostic natif si qualifie.
+
+Mesure : deux iterations du tibia, 300.27 s CPU contre 105.18 s CUDA (~2.85x).
+Qualification numerique limitee aux tests executes ; convergence mecanique et
+publication du tibia restent ouvertes. Commit checkpoint demande par l'utilisateur.

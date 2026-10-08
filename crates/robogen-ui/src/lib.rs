@@ -69,6 +69,17 @@ pub struct RoboGenUi {
     preview_renderer: RobotPreviewRenderer,
     cad_mesh: robogen_cad::Mesh,
     preview_mesh: PreviewMesh,
+    preparation_meshes: [PreviewMesh; 3],
+    show_regions: [bool; 3],
+    show_components: bool,
+    show_results: bool,
+    show_densities: bool,
+    density_reference: bool,
+    density_threshold: f64,
+    selected_optimization: Option<robogen_domain::PartId>,
+    optimization_settings:
+        std::collections::BTreeMap<robogen_domain::PartId, robogen_project::ExecutionSettings>,
+    grid_controls: std::collections::BTreeMap<robogen_domain::PartId, GridControls>,
     diagnostics: Vec<EditorDiagnostic>,
     width_mm: f32,
     pending_action: Option<UiAction>,
@@ -82,6 +93,11 @@ struct EditorDiagnostic {
     column: usize,
     code: String,
     message: String,
+}
+
+struct GridControls {
+    manual: bool,
+    cell_size_mm: f64,
 }
 
 impl Default for RoboGenUi {
@@ -112,6 +128,16 @@ impl Default for RoboGenUi {
             preview_renderer: RobotPreviewRenderer,
             cad_mesh: robogen_cad::Mesh::default(),
             preview_mesh: PreviewMesh::default(),
+            preparation_meshes: std::array::from_fn(|_| PreviewMesh::default()),
+            show_regions: [true; 3],
+            show_components: true,
+            show_results: true,
+            show_densities: true,
+            density_reference: false,
+            density_threshold: 0.35,
+            selected_optimization: None,
+            optimization_settings: std::collections::BTreeMap::new(),
+            grid_controls: std::collections::BTreeMap::new(),
             diagnostics: Vec::new(),
             width_mm: 40.0,
             pending_action: None,
@@ -184,8 +210,9 @@ impl RoboGenUi {
         self.set_dsl_source(include_str!(
             "../../../examples/topology_battery_support/main.rgn"
         ));
-        self.design_tab = DesignTab::Dsl;
+        self.design_tab = DesignTab::Viewport;
         self.mode = WorkspaceMode::Design;
+        self.camera = Camera::default();
     }
 
     pub fn load_biped_example(&mut self) {
@@ -199,6 +226,12 @@ impl RoboGenUi {
         };
         self.design_tab = DesignTab::Viewport;
         self.mode = WorkspaceMode::Design;
+    }
+
+    pub fn load_manual_topology_example(&mut self) {
+        self.set_dsl_source(include_str!("../../../examples/topology_manual/main.rgn"));
+        self.mode = WorkspaceMode::Optimization;
+        self.camera = Camera::default();
     }
 
     pub fn mode(&self) -> WorkspaceMode {
@@ -245,14 +278,38 @@ impl RoboGenUi {
     }
 
     pub fn can_export(&self) -> bool {
-        self.document.is_valid() && !self.cad_mesh.triangles.is_empty()
+        if !self.document.is_valid() {
+            return false;
+        }
+        let Some(project) = self.document.project() else {
+            return false;
+        };
+        if self.mode == WorkspaceMode::Optimization {
+            if let Some(part) = self.selected_optimization {
+                return project.snapshot().optimization_states.get(&part)
+                    == Some(&robogen_project::OptimizationState::Calculated);
+            }
+        }
+        project
+            .snapshot()
+            .optimization_states
+            .values()
+            .all(|state| *state == robogen_project::OptimizationState::Calculated)
+            && !self.cad_mesh.triangles.is_empty()
     }
 
     pub fn request_export(&mut self) -> bool {
         if !self.can_export() {
             return false;
         }
-        self.pending_action = Some(UiAction::ExportStl(self.cad_mesh.clone()));
+        let mesh = if self.mode == WorkspaceMode::Optimization {
+            self.selected_optimization
+                .and_then(|part| self.document.project()?.snapshot().meshes.get(&part))
+                .unwrap_or(&self.cad_mesh)
+        } else {
+            &self.cad_mesh
+        };
+        self.pending_action = Some(UiAction::ExportStl(mesh.clone()));
         true
     }
 
@@ -310,7 +367,9 @@ impl RoboGenUi {
 
     /// Draw one complete UI frame.
     pub fn show(&mut self, context: &Context) {
-        if self.document.poll_compilation() {
+        let diagnostic_changed = self.document.poll_optimization_progress();
+        let compilation_changed = self.document.poll_compilation();
+        if diagnostic_changed || compilation_changed {
             self.rebuild_preview();
         }
         if self.document.build_progress().is_some() {
@@ -319,7 +378,11 @@ impl RoboGenUi {
                 ui.horizontal(|ui| {
                     ui.spinner();
                     let (done, total) = self.document.build_progress().unwrap_or_default();
-                    ui.label(format!("Construction CAD : {done}/{total} pièces"));
+                    if total == 0 {
+                        ui.label("Préparation du calcul...");
+                    } else {
+                        ui.label(format!("Construction CAD / TopOpt : {done}/{total} étapes"));
+                    }
                     if ui.small_button("Annuler le calcul").clicked() {
                         self.document.cancel_build();
                         self.rebuild_preview();
@@ -352,7 +415,11 @@ impl RoboGenUi {
         }
 
         self.application_bar(context);
+        let previous_mode = self.mode;
         self.workspace_bar(context);
+        if previous_mode != self.mode {
+            self.rebuild_preview();
+        }
         match self.mode {
             WorkspaceMode::Design => self.design_workspace(context),
             WorkspaceMode::Optimization => self.optimization_workspace(context),
@@ -472,7 +539,14 @@ impl RoboGenUi {
                                 self.load_topology_example();
                                 ui.close_menu();
                             }
-                            if ui.button("Mini bipède — disposition").clicked() {
+                            if ui.button("TopOpt calculable (charges manuelles)").clicked() {
+                                self.load_manual_topology_example();
+                                ui.close_menu();
+                            }
+                            if ui
+                                .button("Mini bipède — préparation des supports")
+                                .clicked()
+                            {
                                 self.load_biped_example();
                                 ui.close_menu();
                             }
@@ -847,6 +921,40 @@ impl RoboGenUi {
     }
 
     fn viewport(&mut self, ui: &mut Ui) {
+        if self
+            .document
+            .project()
+            .is_some_and(|project| !project.snapshot().preparation.is_empty())
+        {
+            let mut changed = false;
+            ui.horizontal_wrapped(|ui| {
+                changed |= ui
+                    .checkbox(&mut self.show_components, "Composants")
+                    .changed();
+                changed |= ui.checkbox(&mut self.show_results, "Résultats").changed();
+                if self.mode == WorkspaceMode::Optimization {
+                    changed |= ui.checkbox(&mut self.show_densities, "Densités").changed();
+                }
+                for (index, (label, color)) in [
+                    ("Domaine", Color32::from_rgb(100, 160, 255)),
+                    ("Conserver", Color32::from_rgb(75, 215, 120)),
+                    ("Exclure", Color32::from_rgb(255, 100, 85)),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    changed |= ui
+                        .checkbox(
+                            &mut self.show_regions[index],
+                            RichText::new(label).color(color),
+                        )
+                        .changed();
+                }
+            });
+            if changed {
+                self.rebuild_preview();
+            }
+        }
         ui.horizontal(|ui| {
             if icon_button(ui, Icon::OrbitLeft, true, "Orbite gauche", "").clicked() {
                 self.camera.orbit(-30.0, 0.0);
@@ -910,6 +1018,31 @@ impl RoboGenUi {
         );
 
         paint_viewport_chrome(&painter, rect);
+
+        for (index, mesh) in self.preparation_meshes.iter().enumerate() {
+            if !self.show_regions[index] {
+                continue;
+            }
+            let color = [
+                Color32::from_rgba_unmultiplied(100, 160, 255, 150),
+                Color32::from_rgb(75, 215, 120),
+                Color32::from_rgb(255, 100, 85),
+            ][index];
+            let frame = self.preview_renderer.render_mesh(
+                &self.camera,
+                ViewportSize::new(rect.width(), rect.height()),
+                mesh,
+            );
+            for triangle in frame.triangles {
+                let points = triangle
+                    .points
+                    .map(|point| egui::pos2(rect.left() + point.x, rect.top() + point.y));
+                for edge in [[0, 1], [1, 2], [2, 0]] {
+                    painter
+                        .line_segment([points[edge[0]], points[edge[1]]], Stroke::new(1.0, color));
+                }
+            }
+        }
 
         painter.text(
             rect.left_top() + vec2(14.0, 13.0),
@@ -1083,13 +1216,66 @@ impl RoboGenUi {
                 .map(|instance| EntityId(instance.id.0));
         }
 
-        let mut mesh = robogen_cad::Mesh::default();
-        for part_mesh in project.snapshot().meshes.values() {
-            mesh.append(part_mesh);
+        let snapshot = project.snapshot();
+        if !self
+            .selected_optimization
+            .is_some_and(|part| snapshot.preparation.contains_key(&part))
+        {
+            self.selected_optimization = snapshot
+                .model
+                .parts
+                .get("CameraSupport")
+                .filter(|part| snapshot.preparation.contains_key(&part.id))
+                .map(|part| part.id)
+                .or_else(|| snapshot.preparation.keys().next().copied());
         }
-        if mesh.vertices.is_empty() {
+        self.optimization_settings
+            .retain(|id, _| snapshot.preparation.contains_key(id));
+        self.grid_controls
+            .retain(|id, _| snapshot.preparation.contains_key(id));
+        let mut mesh = robogen_cad::Mesh::default();
+        let mut display = robogen_cad::Mesh::default();
+        for (id, part_mesh) in &snapshot.meshes {
+            mesh.append(part_mesh);
+            let visible = if snapshot.preparation.contains_key(id) {
+                self.show_results
+            } else {
+                self.show_components
+            };
+            let mut framed = part_mesh.clone();
+            if !visible {
+                framed.triangles.clear();
+            }
+            display.append(&framed);
+        }
+        if self.mode == WorkspaceMode::Optimization && self.show_densities {
+            if let Some(part) = self.selected_optimization {
+                match project.diagnostic_mesh(part, self.density_threshold, self.density_reference)
+                {
+                    Ok(diagnostic_mesh) => display.append(&diagnostic_mesh),
+                    Err(error) => self.status_message = Some(error.to_string()),
+                }
+            }
+        }
+        let surface_count = display.triangles.len();
+        let mut ranges = Vec::new();
+        for layer in 0..3 {
+            let start = display.triangles.len();
+            for (id, layers) in &snapshot.preparation {
+                let mut framed = layers[layer].clone();
+                if self.mode == WorkspaceMode::Optimization
+                    && self.selected_optimization != Some(*id)
+                {
+                    framed.triangles.clear();
+                }
+                display.append(&framed);
+            }
+            ranges.push(start..display.triangles.len());
+        }
+        if display.vertices.is_empty() {
             self.cad_mesh = mesh;
             self.preview_mesh = PreviewMesh::default();
+            self.preparation_meshes = std::array::from_fn(|_| PreviewMesh::default());
             self.diagnostics = vec![EditorDiagnostic {
                 line: 1,
                 column: 1,
@@ -1098,14 +1284,29 @@ impl RoboGenUi {
             }];
             return;
         }
-        let (preview, width_mm) = cad_preview(&mesh);
+        let (mut preview, width_mm) = cad_preview(&display);
+        self.preparation_meshes = std::array::from_fn(|index| {
+            PreviewMesh::new(
+                preview.positions.clone(),
+                preview.triangles[ranges[index].clone()].to_vec(),
+            )
+        });
+        preview.triangles.truncate(surface_count);
+        preview.colors.truncate(surface_count);
         self.cad_mesh = mesh;
         self.preview_mesh = preview;
         self.width_mm = width_mm;
-        self.diagnostics.clear();
     }
 
     fn optimization_workspace(&mut self, context: &Context) {
+        if self
+            .document
+            .project()
+            .is_some_and(|project| !project.snapshot().preparation.is_empty())
+        {
+            self.topology_workspace(context);
+            return;
+        }
         SidePanel::left("optimization_parameters")
             .exact_width(280.0)
             .resizable(false)
@@ -1142,7 +1343,7 @@ impl RoboGenUi {
                         unavailable_result_card(
                             &mut columns[1],
                             "Après optimisation",
-                            "Solveur indisponible",
+                            "Aucun résultat TopOpt publié",
                             210.0,
                         );
                     });
@@ -1171,18 +1372,492 @@ impl RoboGenUi {
                     1 => unavailable_result_card(
                         ui,
                         "Comparaison",
-                        "Aucune comparaison · Solveur indisponible",
+                        "Aucune comparaison calculée",
                         ui.available_height(),
                     ),
                     2 => analysis_placeholder(ui, ui.available_height()),
                     _ => unavailable_result_card(
                         ui,
                         "Historique",
-                        "Aucune exécution · Solveur indisponible",
+                        "Aucune exécution publiée",
                         ui.available_height(),
                     ),
                 }
             });
+    }
+
+    fn topology_workspace(&mut self, context: &Context) {
+        use robogen_project::OptimizationState;
+        let Some(project) = self.document.project() else {
+            return;
+        };
+        let parts: Vec<_> = project
+            .snapshot()
+            .model
+            .parts
+            .values()
+            .filter_map(|part| {
+                project
+                    .snapshot()
+                    .optimization_states
+                    .get(&part.id)
+                    .map(|state| (part.id, part.name.clone(), *state))
+            })
+            .collect();
+        let previous = self.selected_optimization;
+        let mut launch = false;
+        let mut edit_source = false;
+        let mut diagnostic_view_changed = false;
+        SidePanel::right("topology_controls")
+            .exact_width(320.0)
+            .resizable(false)
+            .frame(side_frame())
+            .show(context, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("Optimisation topologique");
+                    egui::ComboBox::from_id_salt("optimization_part")
+                        .width(280.0)
+                        .selected_text(
+                            parts
+                                .iter()
+                                .find(|part| Some(part.0) == self.selected_optimization)
+                                .map(|part| part.1.as_str())
+                                .unwrap_or("Pièce"),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (id, name, _) in &parts {
+                                ui.selectable_value(
+                                    &mut self.selected_optimization,
+                                    Some(*id),
+                                    name,
+                                );
+                            }
+                        });
+                    let Some(id) = self.selected_optimization else {
+                        return;
+                    };
+                    let state = parts
+                        .iter()
+                        .find(|part| part.0 == id)
+                        .map(|part| part.2)
+                        .unwrap_or(OptimizationState::NotCalculated);
+                    ui.label(match state {
+                        OptimizationState::NotCalculated => "Non calculée",
+                        OptimizationState::Running => "Calcul en cours",
+                        OptimizationState::Calculated => "Calculée",
+                        OptimizationState::Diagnostic => "Diagnostic · non validé",
+                        OptimizationState::Obsolete => "Obsolète · relancement requis",
+                        OptimizationState::Failed => "Échec du calcul",
+                        OptimizationState::Cancelled => "Calcul annulé",
+                    });
+                    if !self.document.is_valid() {
+                        ui.colored_label(MUTED, "Document en cours ou invalide");
+                    }
+                    let specifications = project.topology_operations(id);
+                    let mass_objective = specifications.iter().any(|specification| {
+                        specification.objective == robogen_project::TopologyObjective::MinimizeMass
+                    });
+                    let controls = self.grid_controls.entry(id).or_insert(GridControls {
+                        manual: !mass_objective,
+                        cell_size_mm: 2.5,
+                    });
+                    let settings = self
+                        .optimization_settings
+                        .entry(id)
+                        .or_insert_with(robogen_project::topology_settings);
+                    ui.separator();
+                    ui.label("Réglages du prochain calcul");
+                    ui.add_enabled_ui(self.document.build_progress().is_none(), |ui| {
+                        if mass_objective {
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(
+                                    &mut settings.compute_backend,
+                                    robogen_project::ComputeBackend::Cpu,
+                                    "CPU",
+                                );
+                                ui.selectable_value(
+                                    &mut settings.compute_backend,
+                                    robogen_project::ComputeBackend::Cuda,
+                                    "GPU CUDA",
+                                );
+                            });
+                        }
+                        ui.horizontal(|ui| {
+                            ui.selectable_value(&mut controls.manual, false, "Maille (mm)");
+                            ui.selectable_value(&mut controls.manual, true, "Cellules XYZ");
+                        });
+                        if controls.manual {
+                            ui.horizontal(|ui| {
+                                for count in &mut settings.cells {
+                                    ui.add(
+                                        egui::DragValue::new(count)
+                                            .range(1..=if mass_objective { 256 } else { 64 }),
+                                    );
+                                }
+                            });
+                        } else {
+                            ui.add(
+                                egui::DragValue::new(&mut controls.cell_size_mm)
+                                    .range(0.05..=1000.0)
+                                    .speed(0.1)
+                                    .prefix("Maille cible ")
+                                    .suffix(" mm"),
+                            );
+                        }
+                        let mut filter = settings.filter_radius.millimetres();
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut filter)
+                                    .range(0.01..=1000.0)
+                                    .speed(0.1)
+                                    .prefix("Filtre ")
+                                    .suffix(" mm"),
+                            )
+                            .changed()
+                        {
+                            settings.filter_radius =
+                                robogen_domain::Length::from_millimetres(filter);
+                        }
+                        ui.add(
+                            egui::DragValue::new(&mut settings.threshold)
+                                .range(0.5..=0.99)
+                                .speed(0.01)
+                                .prefix("Seuil "),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut settings.max_iterations)
+                                .range(1..=500)
+                                .prefix("Itérations max "),
+                        );
+                    });
+                    let resolution = specifications.first().map(|specification| {
+                        if controls.manual {
+                            robogen_project::grid_resolution(specification, settings.cells)
+                        } else {
+                            robogen_project::resolution_for_cell_size(
+                                specification,
+                                robogen_domain::Length::from_millimetres(controls.cell_size_mm),
+                            )
+                        }
+                    });
+                    let grid_valid = match resolution {
+                        Some(Ok(resolution)) => {
+                            settings.cells = resolution.cells;
+                            ui.label(format!(
+                                "{} × {} × {} = {} cellules",
+                                resolution.cells[0],
+                                resolution.cells[1],
+                                resolution.cells[2],
+                                resolution.total_cells
+                            ));
+                            ui.label(format!(
+                                "Maille réelle : {:.3} × {:.3} × {:.3} mm",
+                                resolution.cell_size[0].millimetres(),
+                                resolution.cell_size[1].millimetres(),
+                                resolution.cell_size[2].millimetres()
+                            ));
+                            ui.label(format!(
+                                "{} degrés de liberté",
+                                resolution.degrees_of_freedom
+                            ));
+                            if mass_objective {
+                                ui.label(match settings.compute_backend {
+                                    robogen_project::ComputeBackend::Cpu => {
+                                        "CPU · jusqu'à 32 768 cellules"
+                                    }
+                                    robogen_project::ComputeBackend::Cuda => {
+                                        "CUDA Float64 · jusqu'à 32 768 cellules"
+                                    }
+                                });
+                                ui.label("Les maillages fins peuvent consommer plusieurs Gio.");
+                            }
+                            true
+                        }
+                        Some(Err(error)) => {
+                            ui.colored_label(
+                                Color32::from_rgb(255, 130, 110),
+                                error.diagnostic.message,
+                            );
+                            false
+                        }
+                        None => false,
+                    };
+                    ui.separator();
+                    let incomplete = specifications
+                        .iter()
+                        .any(|specification| !specification.preparation_issues().is_empty());
+                    if specifications.iter().any(|specification| {
+                        specification.objective == robogen_project::TopologyObjective::MinimizeMass
+                    }) {
+                        ui.label("Minimisation de masse · moteur expérimental");
+                    }
+                    if incomplete {
+                        ui.colored_label(
+                            Color32::from_rgb(255, 190, 100),
+                            "Préparation incomplète",
+                        );
+                        for specification in &specifications {
+                            for issue in specification.preparation_issues() {
+                                ui.label(match issue {
+                                    "Material not specified" => "Matériau mécanique à renseigner",
+                                    "Preserved interfaces not specified" => "Interfaces à définir",
+                                    "Load cases and supports not specified" => {
+                                        "Charges et appuis à renseigner"
+                                    }
+                                    "Mechanical limits not specified" => {
+                                        "Limites mécaniques à renseigner"
+                                    }
+                                    _ => issue,
+                                });
+                            }
+                        }
+                    }
+                    egui::CollapsingHeader::new("Interfaces, charges et contraintes").show(
+                        ui,
+                        |ui| {
+                            for specification in &specifications {
+                                ui.label(&specification.name);
+                                ui.label(format!(
+                                    "{} zones conservées · {} exclusions",
+                                    specification.preserve.len(),
+                                    specification.voids.len()
+                                ));
+                                if let Some((name, _)) =
+                                    project.snapshot().model.materials.iter().find(
+                                        |(_, material)| Some(material.id) == specification.material,
+                                    )
+                                {
+                                    ui.label(format!("Matériau : {name}"));
+                                }
+                                ui.label(match specification.objective {
+                                    robogen_project::TopologyObjective::MinimizeMass => {
+                                        "Objectif : minimiser la masse"
+                                    }
+                                    robogen_project::TopologyObjective::MaximizeStiffness => {
+                                        "Objectif : maximiser la rigidité"
+                                    }
+                                });
+                                for case in &specification.load_cases {
+                                    ui.label(RichText::new(&case.name).strong());
+                                    for load in &case.loads {
+                                        ui.label(format!("{:?}", load.kind));
+                                    }
+                                    for support in &case.supports {
+                                        ui.label(format!("Appui : {:?}", support.kind));
+                                    }
+                                }
+                                for constraint in &specification.constraints {
+                                    ui.label(format!("{:?}", constraint.kind));
+                                }
+                            }
+                            edit_source = ui.button("Modifier le DSL").clicked();
+                        },
+                    );
+                    launch = ui
+                        .add_enabled(
+                            !incomplete
+                                && grid_valid
+                                && self.document.is_valid()
+                                && self.document.build_progress().is_none(),
+                            Button::new("Lancer cette pièce").min_size(vec2(280.0, 34.0)),
+                        )
+                        .clicked();
+                    for diagnostic in self.document.optimization_diagnostics(id) {
+                        ui.colored_label(
+                            Color32::from_rgb(255, 130, 110),
+                            format!("{} : {}", diagnostic.code, diagnostic.message),
+                        );
+                    }
+                    for specification in specifications {
+                        if let Some(diagnostic) =
+                            project.snapshot().mass_diagnostics.get(&specification.id)
+                        {
+                            ui.separator();
+                            ui.colored_label(
+                                Color32::from_rgb(255, 190, 100),
+                                "Champ de densité · non validé pour fabrication",
+                            );
+                            ui.horizontal(|ui| {
+                                diagnostic_view_changed |= ui
+                                    .selectable_value(&mut self.density_reference, false, "Calcul")
+                                    .changed();
+                                diagnostic_view_changed |= ui
+                                    .selectable_value(
+                                        &mut self.density_reference,
+                                        true,
+                                        "Référence",
+                                    )
+                                    .changed();
+                            });
+                            diagnostic_view_changed |= ui
+                                .add(
+                                    egui::Slider::new(&mut self.density_threshold, 0.0..=1.0)
+                                        .text("Seuil visuel"),
+                                )
+                                .changed();
+                            ui.label(format!(
+                                "Masse du champ calculé : {:.3} g",
+                                diagnostic.mass.kilograms() * 1000.0
+                            ));
+                            ui.label(format!(
+                                "Référence : {:.3} g",
+                                diagnostic.reference_mass.kilograms() * 1000.0
+                            ));
+                            ui.label(format!(
+                                "Variation : {:.2} %",
+                                100.0
+                                    * (diagnostic.mass.kilograms()
+                                        / diagnostic.reference_mass.kilograms()
+                                        - 1.0)
+                            ));
+                            ui.label(if diagnostic.finished {
+                                if diagnostic.converged && diagnostic.feasible {
+                                    "Convergence numérique atteinte · reanalyse absente"
+                                } else {
+                                    "Arrêt sans validation des critères numériques"
+                                }
+                            } else {
+                                match state {
+                                    OptimizationState::Running => {
+                                        "Calcul en cours · dernier champ reçu"
+                                    }
+                                    OptimizationState::Cancelled => {
+                                        "Dernier champ avant annulation"
+                                    }
+                                    OptimizationState::Failed => "Dernier champ avant échec",
+                                    _ => "Dernier champ reçu · non validé",
+                                }
+                            });
+                            if let Some(residual) = diagnostic.kkt_residual {
+                                ui.label(format!("Résidu KKT : {residual:.3e} · limite 1e-4"));
+                            }
+                            for (case_id, displacement, limit) in &diagnostic.cases {
+                                let name = specification
+                                    .load_cases
+                                    .iter()
+                                    .find(|case| case.id == *case_id)
+                                    .map(|case| case.name.as_str())
+                                    .unwrap_or("Cas");
+                                ui.label(format!(
+                                    "{name} : {:.6} / {:.6} mm",
+                                    displacement.millimetres(),
+                                    limit.millimetres()
+                                ));
+                            }
+                            if diagnostic.history.len() > 1 {
+                                ui.label("Masse du champ (g)");
+                                let (rect, _) = ui.allocate_exact_size(
+                                    vec2(ui.available_width(), 85.0),
+                                    Sense::hover(),
+                                );
+                                let maximum = diagnostic
+                                    .history
+                                    .iter()
+                                    .map(|entry| entry.mass.kilograms())
+                                    .fold(diagnostic.reference_mass.kilograms(), f64::max);
+                                let points: Vec<_> = diagnostic
+                                    .history
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(index, entry)| {
+                                        egui::pos2(
+                                            rect.left()
+                                                + rect.width() * index as f32
+                                                    / (diagnostic.history.len() - 1) as f32,
+                                            rect.bottom()
+                                                - rect.height()
+                                                    * (entry.mass.kilograms() / maximum) as f32,
+                                        )
+                                    })
+                                    .collect();
+                                ui.painter().line_segment(
+                                    [rect.left_bottom(), rect.right_bottom()],
+                                    Stroke::new(1.0, MUTED),
+                                );
+                                ui.painter().add(egui::Shape::line(
+                                    points,
+                                    Stroke::new(2.0, Color32::from_rgb(75, 215, 160)),
+                                ));
+                                ui.label(format!(
+                                    "{} évaluations · référence {:.3} g",
+                                    diagnostic.history.len(),
+                                    maximum * 1000.0
+                                ));
+                            }
+                            ui.label(format!(
+                                "Grille {:?} · révision {}",
+                                diagnostic.cells, diagnostic.document_revision
+                            ));
+                            ui.label(robogen_project::MASS_BACKEND);
+                            ui.label(match diagnostic.compute_backend {
+                                robogen_project::ComputeBackend::Cpu => "Résolution CPU directe",
+                                robogen_project::ComputeBackend::Cuda => {
+                                    "Résolution GPU CUDA · CG Float64"
+                                }
+                            });
+                        }
+                        if let Some(report) = project.snapshot().topology.get(&specification.id) {
+                            ui.separator();
+                            ui.label(RichText::new("Résultat reanalysé").strong());
+                            ui.label(format!(
+                                "{} itérations · {:.3} g",
+                                report.iterations,
+                                report.mass.kilograms() * 1000.0
+                            ));
+                            ui.label(format!(
+                                "Volume conservé : {:.2} %",
+                                report.volume_fraction * 100.0
+                            ));
+                            ui.label(format!(
+                                "Grille {:?} · filtre {} mm · seuil {}",
+                                report.settings.cells,
+                                report.settings.filter_radius.millimetres(),
+                                report.settings.threshold
+                            ));
+                            ui.label(format!(
+                                "Révision {} · {}",
+                                report.document_revision, report.solver_backend
+                            ));
+                            for case in &report.cases {
+                                ui.label(format!(
+                                    "Cas {} · {:.4e} J",
+                                    case.id,
+                                    case.compliance.joules()
+                                ));
+                                ui.label(format!(
+                                    "Déplacement {:.6} mm · résidu {:.2e}",
+                                    case.max_displacement.millimetres(),
+                                    case.relative_residual
+                                ));
+                            }
+                        }
+                    }
+                });
+            });
+        if launch {
+            if let Some(id) = self.selected_optimization {
+                let settings = self
+                    .optimization_settings
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(robogen_project::topology_settings);
+                if let Err(error) = self.document.start_optimization(id, settings) {
+                    self.status_message = Some(error.message);
+                }
+                self.pending_action = None;
+            }
+        }
+        if launch || previous != self.selected_optimization || diagnostic_view_changed {
+            self.rebuild_preview();
+        }
+        if edit_source {
+            self.mode = WorkspaceMode::Design;
+            self.design_tab = DesignTab::Dsl;
+            self.rebuild_preview();
+        }
+        egui::CentralPanel::default()
+            .frame(Frame::new().fill(BACKGROUND).inner_margin(Margin::same(12)))
+            .show(context, |ui| self.viewport(ui));
     }
 
     fn learning_workspace(&mut self, context: &Context) {
@@ -2262,8 +2937,18 @@ mod tests {
             Ok(())
         };
         wait(&mut state)?;
-        assert!(state.can_export(), "{:?}", state.diagnostics);
-        assert_eq!(state.taxonomy.len(), 17);
+        assert!(state.document.is_valid(), "{:?}", state.diagnostics);
+        assert!(!state.can_export());
+        assert_eq!(state.taxonomy.len(), 28);
+        assert!(state
+            .preparation_meshes
+            .iter()
+            .all(|layer| !layer.triangles.is_empty()));
+        let project = state.document.project().ok_or("missing biped project")?;
+        let camera_support = project.snapshot().model.parts["CameraSupport"].id;
+        assert_eq!(state.selected_optimization, Some(camera_support));
+        assert_eq!(project.snapshot().preparation.len(), 11);
+        assert!(project.snapshot().topology.is_empty());
         for size in [
             ViewportSize::new(600.0, 400.0),
             ViewportSize::new(320.0, 240.0),
@@ -2298,8 +2983,15 @@ mod tests {
                 "blue servos visible at {size:?}"
             );
         }
-        assert!(state.request_export());
-        assert!(matches!(state.take_action(), Some(UiAction::ExportStl(_))));
+        assert!(!state.request_export());
+        assert!(state.take_action().is_none());
+        state.mode = WorkspaceMode::Optimization;
+        state.rebuild_preview();
+        assert!(!state.can_export());
+        let context = egui::Context::default();
+        let _ = context.run(egui::RawInput::default(), |context| state.show(context));
+        assert_eq!(state.selected_optimization, Some(camera_support));
+        assert!(state.document.build_progress().is_none());
         assert!(state.undo());
         assert_eq!(state.dsl_source(), previous);
         assert!(!state.can_export());
@@ -2307,8 +2999,8 @@ mod tests {
         assert!(state.redo());
         assert!(!state.can_export());
         wait(&mut state)?;
-        assert_eq!(state.taxonomy.len(), 17);
-        assert!(state.can_export());
+        assert_eq!(state.taxonomy.len(), 28);
+        assert!(!state.can_export());
         state.set_dsl_source("module invalid; part");
         assert!(!state.can_export());
         Ok(())
@@ -2318,22 +3010,250 @@ mod tests {
     fn topology_example_reports_unavailability_and_preserves_undo() {
         let mut state = RoboGenUi::default();
         let previous = state.dsl_source().to_owned();
-        let mesh = state.cad_mesh.clone();
         state.load_topology_example();
-        assert_eq!(state.design_tab, DesignTab::Dsl);
+        assert_eq!(state.design_tab, DesignTab::Viewport);
         assert!(!state.can_export());
         assert!(!state.request_export());
         assert!(state.take_action().is_none());
-        assert!(state
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == "E330"));
-        assert_eq!(state.cad_mesh, mesh);
+        assert!(state.diagnostics.is_empty());
+        assert!(state.cad_mesh.triangles.is_empty());
         assert!(state.undo());
         assert_eq!(state.dsl_source(), previous);
         assert!(state.can_export());
         assert!(state.redo());
         assert!(!state.can_export());
+    }
+
+    #[test]
+    fn mass_grid_defaults_to_physical_resolution_and_exposes_budget_errors() -> Result<(), String> {
+        let source = include_str!("../../../examples/topology_manual/main.rgn")
+            .replace("maximize_stiffness", "minimize_mass")
+            .replace("volume_fraction(0.85), max_mass(230 g), ", "");
+        let mut state = RoboGenUi::default();
+        state.set_dsl_source(source);
+        state.mode = WorkspaceMode::Optimization;
+        let context = Context::default();
+        let _ = context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    vec2(1440.0, 900.0),
+                )),
+                ..Default::default()
+            },
+            |context| state.show(context),
+        );
+        let part = state.selected_optimization.ok_or("missing part")?;
+        assert_eq!(state.optimization_settings[&part].cells, [48, 16, 8]);
+        assert!(!state.grid_controls[&part].manual);
+        assert_eq!(state.grid_controls[&part].cell_size_mm, 2.5);
+        let project = state.document.project().ok_or("missing project")?;
+        let specifications = project.topology_operations(part);
+        assert!(robogen_project::resolution_for_cell_size(
+            specifications[0],
+            robogen_domain::Length::from_millimetres(0.05)
+        )
+        .is_err());
+        assert!(project.snapshot().mass_diagnostics.is_empty());
+        assert!(!state.can_export());
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires the pinned local Julia runtime"]
+    fn native_mass_view_displays_diagnostics_without_export() -> Result<(), String> {
+        check_native_mass_view(robogen_project::ComputeBackend::Cpu)
+    }
+
+    #[test]
+    #[ignore = "requires the pinned Julia/CUDA runtime and an NVIDIA GPU"]
+    fn native_mass_view_cuda_displays_diagnostics_without_export() -> Result<(), String> {
+        check_native_mass_view(robogen_project::ComputeBackend::Cuda)
+    }
+
+    fn check_native_mass_view(
+        compute_backend: robogen_project::ComputeBackend,
+    ) -> Result<(), String> {
+        let mut state = RoboGenUi::default();
+        let source = include_str!("../../../examples/topology_manual/main.rgn")
+            .replace("maximize_stiffness", "minimize_mass")
+            .replace("volume_fraction(0.85), max_mass(230 g), ", "");
+        state.set_dsl_source(source);
+        state.mode = WorkspaceMode::Optimization;
+        let part = state.selected_optimization.ok_or("missing part")?;
+        let mut settings = robogen_project::topology_settings();
+        settings.compute_backend = compute_backend;
+        settings.max_iterations = 2;
+        state
+            .document
+            .start_optimization(part, settings)
+            .map_err(|error| error.message)?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+        let mut live_geometry = false;
+        while state.document.build_progress().is_some() {
+            if state.document.poll_optimization_progress() {
+                state.rebuild_preview();
+                live_geometry |= !state.preview_mesh.triangles.is_empty();
+                assert!(!state.can_export());
+            }
+            state.document.poll_compilation();
+            if std::time::Instant::now() > deadline {
+                return Err("mass UI timeout".into());
+            }
+            std::thread::park_timeout(std::time::Duration::from_millis(10));
+        }
+        state.rebuild_preview();
+        let snapshot = state
+            .document
+            .project()
+            .ok_or("missing project")?
+            .snapshot();
+        let diagnostic = snapshot
+            .mass_diagnostics
+            .values()
+            .next()
+            .ok_or("missing diagnostic")?;
+        assert_eq!(diagnostic.compute_backend, compute_backend);
+        assert!(diagnostic.finished, "{:?}", state.diagnostics);
+        assert!(snapshot.topology.is_empty());
+        assert!(live_geometry);
+        assert!(!state.preview_mesh.triangles.is_empty());
+        assert!(state.cad_mesh.triangles.is_empty());
+        assert!(!state.can_export());
+        assert!(!state.request_export());
+        for size in [
+            ViewportSize::new(600.0, 400.0),
+            ViewportSize::new(320.0, 240.0),
+        ] {
+            assert!(!state
+                .preview_renderer
+                .render_mesh(&state.camera, size, &state.preview_mesh)
+                .triangles
+                .is_empty());
+        }
+        state.density_reference = true;
+        state.rebuild_preview();
+        let reference = state.preview_mesh.triangles.len();
+        state.density_reference = false;
+        state.density_threshold = 0.99;
+        state.rebuild_preview();
+        assert!(reference > state.preview_mesh.triangles.len());
+        state.show_densities = false;
+        state.rebuild_preview();
+        assert!(state.preview_mesh.triangles.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn computed_topology_background_publication_history_and_stale_export() -> Result<(), String> {
+        let mut state = RoboGenUi::default();
+        state
+            .enable_background_compilation()
+            .map_err(|error| error.to_string())?;
+        let wait = |state: &mut RoboGenUi| -> Result<(), String> {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+            while !state.document.poll_compilation() {
+                if std::time::Instant::now() > deadline {
+                    return Err("topology timeout".into());
+                }
+                std::thread::yield_now();
+            }
+            state.rebuild_preview();
+            Ok(())
+        };
+        state.load_manual_topology_example();
+        assert!(!state.can_export());
+        wait(&mut state)?;
+        assert!(!state.can_export());
+        let part = state.selected_optimization.ok_or("missing part")?;
+        state
+            .document
+            .start_optimization(part, robogen_project::topology_settings())
+            .map_err(|error| error.message)?;
+        wait(&mut state)?;
+        assert!(state.can_export(), "{:?}", state.diagnostics);
+        assert_eq!(state.cad_mesh.triangles.len(), 336);
+        let report = state
+            .document
+            .project()
+            .ok_or("missing project")?
+            .snapshot()
+            .topology
+            .values()
+            .next()
+            .ok_or("missing report")?
+            .clone();
+        assert!(report.document_revision > 0);
+        for size in [
+            ViewportSize::new(600.0, 400.0),
+            ViewportSize::new(320.0, 240.0),
+        ] {
+            assert!(!state
+                .preview_renderer
+                .render_mesh(&state.camera, size, &state.preview_mesh)
+                .triangles
+                .is_empty());
+        }
+        assert!(state.request_export());
+        assert!(matches!(state.take_action(), Some(UiAction::ExportStl(_))));
+        assert!(state.undo());
+        assert!(!state.can_export());
+        wait(&mut state)?;
+        assert!(state
+            .document
+            .project()
+            .ok_or("missing undo project")?
+            .snapshot()
+            .topology
+            .is_empty());
+        assert!(state.redo());
+        wait(&mut state)?;
+        assert!(!state.can_export());
+        assert!(state
+            .document
+            .project()
+            .ok_or("missing prepared project")?
+            .snapshot()
+            .topology
+            .is_empty());
+        state
+            .document
+            .start_optimization(part, robogen_project::topology_settings())
+            .map_err(|error| error.message)?;
+        wait(&mut state)?;
+        assert!(state.can_export());
+        let current_revision = state
+            .document
+            .project()
+            .ok_or("missing redo project")?
+            .snapshot()
+            .topology
+            .values()
+            .next()
+            .ok_or("missing redo report")?
+            .document_revision;
+        assert!(current_revision > report.document_revision);
+        let mesh = state.cad_mesh.clone();
+        state.set_dsl_source("module invalid; part");
+        wait(&mut state)?;
+        assert!(!state.can_export());
+        assert_eq!(state.cad_mesh, mesh);
+        state.load_manual_topology_example();
+        state.document.cancel_build();
+        assert!(!state.can_export());
+        assert!(!state.document.poll_compilation());
+        state.load_manual_topology_example();
+        state.set_dsl_source(DEFAULT_DSL);
+        wait(&mut state)?;
+        assert!(state.can_export());
+        assert!(state
+            .document
+            .project()
+            .ok_or("missing current project")?
+            .snapshot()
+            .topology
+            .is_empty());
+        Ok(())
     }
 
     #[test]
@@ -2381,6 +3301,95 @@ mod tests {
             .any(|instance| instance.name == "li_ion_battery_1"));
         assert!(state.undo());
         assert_eq!(state.dsl_source(), previous);
+    }
+
+    #[test]
+    fn preparation_layers_are_distinct_and_never_exportable() {
+        let mut state = RoboGenUi::default();
+        state.load_topology_example();
+        assert!(state.document.is_valid(), "{:?}", state.diagnostics);
+        assert!(!state.can_export());
+        assert!(state.cad_mesh.triangles.is_empty());
+        assert!(state
+            .preparation_meshes
+            .iter()
+            .all(|mesh| !mesh.triangles.is_empty()));
+        assert!(state
+            .document
+            .project()
+            .is_some_and(|project| project.snapshot().topology.is_empty()));
+        let context = Context::default();
+        for mode in [WorkspaceMode::Design, WorkspaceMode::Optimization] {
+            state.mode = mode;
+            state.design_tab = DesignTab::Viewport;
+            let _ = context.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::pos2(0.0, 0.0),
+                        vec2(1080.0, 680.0),
+                    )),
+                    ..Default::default()
+                },
+                |context| state.show(context),
+            );
+            assert!(state
+                .document
+                .project()
+                .is_some_and(|project| project.snapshot().topology.is_empty()));
+            assert!(!state.can_export());
+        }
+    }
+
+    #[test]
+    fn selected_result_exports_without_exporting_other_preparations() -> Result<(), String> {
+        use robogen_project::topology_settings;
+        let mut state = RoboGenUi::default();
+        state.set_dsl_source(format!("{}\npart Other {{ material: AluminiumFixture; body = translate(offset: [0 mm, 80 mm, 0 mm], shape: manual_support()); }}", include_str!("../../../examples/topology_manual/main.rgn")));
+        let ids: Vec<_> = state
+            .document
+            .project()
+            .ok_or("project")?
+            .snapshot()
+            .preparation
+            .keys()
+            .copied()
+            .collect();
+        assert_eq!(ids.len(), 2);
+        state
+            .document
+            .start_optimization(ids[0], topology_settings())
+            .map_err(|error| error.message)?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while !state.document.poll_compilation() {
+            if std::time::Instant::now() > deadline {
+                return Err("optimization timeout".into());
+            }
+            std::thread::yield_now();
+        }
+        state.rebuild_preview();
+        assert!(!state.can_export());
+        state.mode = WorkspaceMode::Optimization;
+        state.selected_optimization = Some(ids[1]);
+        assert!(!state.can_export());
+        state.selected_optimization = Some(ids[0]);
+        assert!(state.request_export());
+        let Some(UiAction::ExportStl(mesh)) = state.take_action() else {
+            return Err("missing export".into());
+        };
+        assert_eq!(mesh.triangles.len(), 336);
+        state.show_regions = [false; 3];
+        state.show_results = false;
+        state.rebuild_preview();
+        assert!(state.preview_mesh.triangles.is_empty());
+        assert!(state.can_export());
+        state
+            .document
+            .start_optimization(ids[1], topology_settings())
+            .map_err(|error| error.message)?;
+        assert!(state.can_export());
+        state.document.cancel_build();
+        assert!(state.can_export());
+        Ok(())
     }
 
     #[test]

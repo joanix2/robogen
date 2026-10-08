@@ -16,11 +16,10 @@ fn cuboid(size: [f64; 3]) -> SolidGeometry {
     })
 }
 
-#[test]
-fn unresolved_topology_is_rejected_under_all_solid_wrappers() {
-    use robogen_domain::{Angle, FeatureId, MaterialId, OptimizationId};
+fn topology_fixture() -> SolidGeometry {
+    use robogen_domain::{FeatureId, MaterialId, OptimizationId};
     use robogen_ir::topology::{Objective, TopologySpec, TOPOLOGY_SCHEMA_VERSION};
-    let topology = geometry(SolidOperation::Topology {
+    geometry(SolidOperation::Topology {
         specification: Box::new(TopologySpec {
             schema_version: TOPOLOGY_SCHEMA_VERSION,
             id: OptimizationId::from_name("test"),
@@ -30,13 +29,19 @@ fn unresolved_topology_is_rejected_under_all_solid_wrappers() {
             domain: cuboid([10.0; 3]),
             preserve: vec![],
             voids: vec![],
-            material: MaterialId::from_name("test"),
+            material: Some(MaterialId::from_name("test")),
             load_cases: vec![],
             objective: Objective::MinimizeMass,
             constraints: vec![],
             manufacturing: vec![],
         }),
-    });
+    })
+}
+
+#[test]
+fn unresolved_topology_is_rejected_under_all_solid_wrappers() {
+    use robogen_domain::Angle;
+    let topology = topology_fixture();
     for shape in [
         topology.clone(),
         translated(topology.clone(), [1.0; 3]),
@@ -74,6 +79,101 @@ fn translated(shape: SolidGeometry, offset: [f64; 3]) -> SolidGeometry {
         offset: offset.map(Length::from_millimetres),
         shape: Box::new(shape),
     })
+}
+
+#[test]
+fn topology_preparation_is_separate_and_does_not_require_a_solver() -> Result<(), CadError> {
+    let topology = topology_fixture();
+    let layers =
+        robogen_cad::topology_preview(&translated(topology.clone(), [30.0, 40.0, 50.0]), &|| {
+            false
+        })?;
+    assert!((volume_mm3(&layers[0]) - 1000.0).abs() < 0.01);
+    assert!(layers[1].vertices.is_empty());
+    assert!(layers[2].vertices.is_empty());
+    assert!(layers[0]
+        .vertices
+        .iter()
+        .all(|vertex| vertex.position[0] >= 0.03));
+    assert_eq!(
+        robogen_cad::topology_preview(&topology, &|| true),
+        Err(CadError::Cancelled)
+    );
+    Ok(())
+}
+
+#[test]
+fn resolved_topology_composes_rigidly_and_rejects_invalid_meshes() -> Result<(), CadError> {
+    use robogen_cad::ResolvedTopologyKernel;
+    use robogen_domain::{Angle, OptimizationId};
+    let topology = topology_fixture();
+    let id = OptimizationId::from_name("test");
+    let mesh = NativeCadKernel.solid(&cuboid([10.0; 3]))?;
+    let mut meshes = BTreeMap::from([(id, mesh.clone())]);
+    let wrap = |shape| {
+        translated(
+            geometry(SolidOperation::Rotate {
+                angles: [
+                    Angle::from_degrees(0.0),
+                    Angle::from_degrees(0.0),
+                    Angle::from_degrees(90.0),
+                ],
+                shape: Box::new(geometry(SolidOperation::Compound {
+                    shapes: vec![
+                        geometry(SolidOperation::Color {
+                            rgb: [10, 20, 30],
+                            shape: Box::new(shape),
+                        }),
+                        translated(cuboid([1.0; 3]), [20.0, 0.0, 0.0]),
+                    ],
+                })),
+            }),
+            [30.0, 40.0, 50.0],
+        )
+    };
+    let resolved = ResolvedTopologyKernel { meshes: &meshes }.solid(&wrap(topology.clone()))?;
+    let expected = NativeCadKernel.solid(&wrap(cuboid([10.0; 3])))?;
+    assert_eq!(resolved.triangles, expected.triangles);
+    for (actual, expected) in resolved.vertices.iter().zip(&expected.vertices) {
+        for axis in 0..3 {
+            assert!((actual.position[axis] - expected.position[axis]).abs() < 1e-7);
+        }
+    }
+    assert_closed(&resolved);
+    assert!((volume_mm3(&resolved) - 1001.0).abs() < 0.01);
+    let kernel = ResolvedTopologyKernel { meshes: &meshes };
+    assert_eq!(
+        kernel.solid_cancellable(&topology, &|| true),
+        Err(CadError::Cancelled)
+    );
+    for shape in [
+        geometry(SolidOperation::Union {
+            shapes: vec![topology.clone(), cuboid([1.0; 3])],
+        }),
+        geometry(SolidOperation::Difference {
+            base: Box::new(topology.clone()),
+            tools: vec![cuboid([1.0; 3])],
+        }),
+    ] {
+        assert!(
+            matches!(kernel.solid(&shape), Err(CadError::InvalidSolid {reason, ..}) if reason.contains("mechanical revalidation"))
+        );
+    }
+    meshes.clear();
+    assert!(ResolvedTopologyKernel { meshes: &meshes }
+        .solid(&topology)
+        .is_err());
+    let mut bad_indices = mesh.clone();
+    bad_indices.triangles[0].indices[0] = u32::MAX;
+    let mut bad_coordinates = mesh;
+    bad_coordinates.vertices[0].position[0] = f32::NAN;
+    for invalid in [Mesh::default(), bad_indices, bad_coordinates] {
+        meshes.insert(id, invalid);
+        assert!(ResolvedTopologyKernel { meshes: &meshes }
+            .solid(&topology)
+            .is_err());
+    }
+    Ok(())
 }
 
 fn volume_mm3(mesh: &Mesh) -> f64 {

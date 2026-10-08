@@ -14,6 +14,289 @@ const BATTERY_SOURCE: &str = include_str!("../../../examples/li_ion_battery/main
 
 const TOPOLOGY_SOURCE: &str = include_str!("../../../examples/topology_battery_support/main.rgn");
 
+const MANUAL_TOPOLOGY: &str = include_str!("../../../examples/topology_manual/main.rgn");
+
+fn calculate_first(project: &mut Project) -> Result<(), Vec<Diagnostic>> {
+    let part = project
+        .snapshot()
+        .preparation
+        .keys()
+        .next()
+        .copied()
+        .ok_or_else(Vec::new)?;
+    project.optimize_part(
+        part,
+        &robogen_project::topology_settings(),
+        0,
+        &|| false,
+        &|_, _| {},
+    )
+}
+
+#[test]
+fn preparation_never_publishes_a_computed_mesh() -> Result<(), Vec<Diagnostic>> {
+    for source in [MANUAL_TOPOLOGY, TOPOLOGY_SOURCE] {
+        let project = Project::from_source(source)?;
+        assert!(project.snapshot().meshes.is_empty());
+        assert!(project.snapshot().topology.is_empty());
+        assert_eq!(project.snapshot().preparation.len(), 1);
+        for layers in project.snapshot().preparation.values() {
+            assert!(!layers[0].triangles.is_empty());
+            assert!(!layers[1].triangles.is_empty());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn explicit_jobs_preserve_other_parts_and_invalidate_without_recomputing() -> Result<(), String> {
+    use robogen_project::{topology_settings, OptimizationState};
+    let source = format!("{MANUAL_TOPOLOGY}\npart Other {{ material: AluminiumFixture; body = translate(offset: [0 mm, 80 mm, 0 mm], shape: manual_support()); }}");
+    let mut document = SourceDocument::new(source.clone());
+    let ids: Vec<_> = document
+        .project()
+        .ok_or("no project")?
+        .snapshot()
+        .preparation
+        .keys()
+        .copied()
+        .collect();
+    assert_eq!(ids.len(), 2);
+    let finish = |document: &mut SourceDocument| -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while !document.poll_compilation() {
+            if std::time::Instant::now() > deadline {
+                return Err("job timeout".into());
+            }
+            std::thread::yield_now();
+        }
+        Ok(())
+    };
+    document
+        .start_optimization(ids[0], topology_settings())
+        .map_err(|error| error.message)?;
+    finish(&mut document)?;
+    let snapshot = document.project().ok_or("no project")?.snapshot();
+    assert_eq!(
+        snapshot.optimization_states[&ids[0]],
+        OptimizationState::Calculated
+    );
+    assert_eq!(
+        snapshot.optimization_states[&ids[1]],
+        OptimizationState::NotCalculated
+    );
+    let first = snapshot.meshes[&ids[0]].clone();
+    let reports = snapshot.topology.clone();
+    document
+        .start_optimization(ids[1], topology_settings())
+        .map_err(|error| error.message)?;
+    finish(&mut document)?;
+    let snapshot = document.project().ok_or("no project")?.snapshot();
+    assert_eq!(snapshot.meshes[&ids[0]], first);
+    for (id, report) in reports {
+        assert_eq!(snapshot.topology[&id], report);
+    }
+    assert_eq!(snapshot.meshes.len(), 2);
+    document
+        .start_optimization(ids[1], topology_settings())
+        .map_err(|error| error.message)?;
+    document.cancel_build();
+    assert_eq!(
+        document
+            .project()
+            .ok_or("no project")?
+            .snapshot()
+            .optimization_states[&ids[1]],
+        OptimizationState::Cancelled
+    );
+    assert!(document.is_valid());
+    document.replace_source(format!("{source}\n// edited"));
+    finish(&mut document)?;
+    let snapshot = document.project().ok_or("no project")?.snapshot();
+    assert!(snapshot.meshes.is_empty());
+    assert!(snapshot.topology.is_empty());
+    assert_eq!(
+        snapshot.optimization_states[&ids[0]],
+        OptimizationState::Obsolete
+    );
+    assert!(document.undo());
+    finish(&mut document)?;
+    assert!(document
+        .project()
+        .ok_or("no project")?
+        .snapshot()
+        .topology
+        .is_empty());
+    document
+        .start_optimization(ids[0], topology_settings())
+        .map_err(|error| error.message)?;
+    document.replace_source("module empty;".into());
+    finish(&mut document)?;
+    assert!(document
+        .project()
+        .ok_or("no project")?
+        .snapshot()
+        .topology
+        .is_empty());
+    Ok(())
+}
+
+#[test]
+fn topology_parameter_rebuild_reanalyses_loads_and_keeps_last_valid_snapshot(
+) -> Result<(), Vec<Diagnostic>> {
+    let source = MANUAL_TOPOLOGY
+        .replace(
+            "module topology_manual;",
+            "module topology_manual; parameter LOAD_FACTOR = 1;",
+        )
+        .replace("0 N, 0 N, -1 N", "0 N, 0 N, -1 N * LOAD_FACTOR")
+        .replace("0 N, 0 N, 1 N", "0 N, 0 N, 1 N * LOAD_FACTOR");
+    let mut project = Project::from_source(source)?;
+    calculate_first(&mut project)?;
+    let initial = project
+        .snapshot()
+        .topology
+        .values()
+        .next()
+        .ok_or_else(Vec::new)?
+        .cases[0]
+        .compliance
+        .joules();
+    project
+        .set_parameter("LOAD_FACTOR", Quantity::Scalar(2.0))
+        .map_err(|error| vec![error])?;
+    project.rebuild()?;
+    assert!(project.snapshot().topology.is_empty());
+    calculate_first(&mut project)?;
+    let doubled = project
+        .snapshot()
+        .topology
+        .values()
+        .next()
+        .ok_or_else(Vec::new)?
+        .cases[0]
+        .compliance
+        .joules();
+    assert!((doubled / initial - 4.0).abs() < 1e-5);
+    project
+        .set_parameter("LOAD_FACTOR", Quantity::Scalar(100.0))
+        .map_err(|error| vec![error])?;
+    project.rebuild()?;
+    let previous = project.snapshot().clone();
+    assert!(calculate_first(&mut project)
+        .err()
+        .ok_or_else(Vec::new)?
+        .iter()
+        .any(|error| error.message.contains("E344")));
+    assert_eq!(project.snapshot(), &previous);
+    Ok(())
+}
+
+#[test]
+fn topology_publishes_reanalysed_mesh_and_report_in_local_frame() -> Result<(), Vec<Diagnostic>> {
+    let source = MANUAL_TOPOLOGY.replace("body = manual_support();", "body = color(red: 40, green: 170, blue: 100, shape: translate(offset: [1000 mm, 2000 mm, 3000 mm], shape: manual_support()));");
+    let mut project = Project::from_source(source)?;
+    calculate_first(&mut project)?;
+    let snapshot = project.snapshot();
+    assert_eq!(snapshot.topology.len(), 1);
+    let report = snapshot.topology.values().next().ok_or_else(Vec::new)?;
+    assert_eq!(report.document_revision, 0);
+    assert_eq!(report.settings.cells, [12, 4, 2]);
+    assert_eq!(report.iterations, 22);
+    assert_eq!(report.cases.len(), 2);
+    assert!((report.mass.kilograms() - 0.216).abs() < 1e-8);
+    assert!(report
+        .cases
+        .iter()
+        .all(|case| case.relative_residual < 1e-8 && case.max_displacement.millimetres() < 0.01));
+    let mesh = snapshot.meshes.values().next().ok_or_else(Vec::new)?;
+    assert_eq!(mesh.triangles.len(), 336);
+    assert!(mesh
+        .triangles
+        .iter()
+        .all(|triangle| triangle.color == Some([40, 170, 100])));
+    for (axis, expected) in [1.0_f32, 2.0, 3.0].into_iter().enumerate() {
+        assert!(
+            (mesh
+                .vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::INFINITY, f32::min)
+                - expected)
+                .abs()
+                < 1e-6
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires the pinned local Julia runtime"]
+fn native_mass_worker_keeps_diagnostics_separate_from_export(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let source = include_str!("../../../examples/topology_manual/main.rgn")
+        .replace("maximize_stiffness", "minimize_mass")
+        .replace("volume_fraction(0.85), max_mass(230 g), ", "");
+    let mut document = SourceDocument::new(source);
+    let part = *document
+        .project()
+        .ok_or("missing project")?
+        .snapshot()
+        .preparation
+        .keys()
+        .next()
+        .ok_or("missing preparation")?;
+    let mut settings = robogen_project::topology_settings();
+    settings.max_iterations = 2;
+    document
+        .start_optimization(part, settings)
+        .map_err(|error| error.message)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+    let mut saw_live = false;
+    while document.build_progress().is_some() {
+        saw_live |= document.poll_optimization_progress();
+        document.poll_compilation();
+        if std::time::Instant::now() > deadline {
+            return Err("mass worker timeout".into());
+        }
+        std::thread::park_timeout(std::time::Duration::from_millis(10));
+    }
+    let project = document.project().ok_or("lost project")?;
+    assert!(saw_live);
+    assert_eq!(
+        project.snapshot().optimization_states[&part],
+        robogen_project::OptimizationState::Diagnostic,
+        "{:?}",
+        document.optimization_diagnostics(part)
+    );
+    assert!(project.snapshot().meshes.is_empty());
+    assert!(project.snapshot().topology.is_empty());
+    assert_eq!(project.snapshot().mass_diagnostics.len(), 1);
+    let diagnostic = project
+        .snapshot()
+        .mass_diagnostics
+        .values()
+        .next()
+        .ok_or("no diagnostic")?;
+    assert!(diagnostic.finished);
+    assert!(!diagnostic.converged);
+    let reference = project.diagnostic_mesh(part, 0.35, true)?;
+    let candidate = project.diagnostic_mesh(part, 0.35, false)?;
+    assert!(!candidate.triangles.is_empty());
+    assert!(reference.triangles.len() >= candidate.triangles.len());
+    assert!(project.diagnostic_mesh(part, f64::NAN, false).is_err());
+    document.replace_source(SOURCE.into());
+    assert!(document
+        .project()
+        .ok_or("lost project")?
+        .snapshot()
+        .mass_diagnostics
+        .is_empty());
+    document.cancel_build();
+    assert!(!document.poll_optimization_progress());
+    Ok(())
+}
+
 #[test]
 fn topology_is_semantically_valid_but_never_publishes_placeholder_geometry(
 ) -> Result<(), Vec<Diagnostic>> {
@@ -21,13 +304,13 @@ fn topology_is_semantically_valid_but_never_publishes_placeholder_geometry(
     let operations = model.topology_operations();
     assert_eq!(operations.len(), 1);
     assert_eq!(operations[0].constraints.len(), 6);
-    let errors = Project::from_source(TOPOLOGY_SOURCE)
-        .err()
-        .expect("backend must be unavailable");
+    let mut project = Project::from_source(TOPOLOGY_SOURCE)?;
+    assert!(project.snapshot().meshes.is_empty());
+    let errors = calculate_first(&mut project).err().ok_or_else(Vec::new)?;
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "E330");
     assert_eq!(errors[0].span, operations[0].span);
-    assert!(errors[0].message.contains("Solver unavailable"));
+    assert!(errors[0].message.contains("E340"));
     Ok(())
 }
 
@@ -55,22 +338,45 @@ fn topology_background_history_cancellation_and_revisions_keep_last_valid_mesh(
     document.replace_source(TOPOLOGY_SOURCE.into());
     assert!(!document.is_valid());
     finish(&mut document)?;
-    assert!(!document.is_valid());
+    assert!(document.is_valid());
+    let part = *document
+        .project()
+        .ok_or("missing project")?
+        .snapshot()
+        .preparation
+        .keys()
+        .next()
+        .ok_or("missing part")?;
+    document
+        .start_optimization(part, robogen_project::topology_settings())
+        .map_err(|error| error.message)?;
+    finish(&mut document)?;
+    assert!(document.is_valid());
     assert!(document
-        .diagnostics()
+        .optimization_diagnostics(part)
         .iter()
         .any(|diagnostic| diagnostic.code == "E330"));
-    assert_eq!(
-        document.project().ok_or("lost old mesh")?.snapshot().meshes,
-        meshes
-    );
+    assert!(document
+        .project()
+        .ok_or("lost preparation")?
+        .snapshot()
+        .meshes
+        .is_empty());
     assert!(document.undo());
     finish(&mut document)?;
     assert!(document.is_valid());
     assert_eq!(document.source(), SOURCE);
+    assert_eq!(
+        document
+            .project()
+            .ok_or("missing restored project")?
+            .snapshot()
+            .meshes,
+        meshes
+    );
     assert!(document.redo());
     finish(&mut document)?;
-    assert!(!document.is_valid());
+    assert!(document.is_valid());
     document.replace_source(SOURCE.into());
     document.replace_source(TOPOLOGY_SOURCE.into());
     document.replace_source(SOURCE.into());

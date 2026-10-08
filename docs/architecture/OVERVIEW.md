@@ -17,6 +17,39 @@ Voir [ADR-008](../adr/ADR-008-topology-optimisation-solver.md) et
 [le benchmark](../../examples/topopt_beam/README.md). Aucun autre jalon n'est
 valide retroactivement par cette tranche.
 
+Mise a jour 2026-10-08, iteration 8 : apres projection conservative du DSL et
+reanalyse binaire multi-cas, Project publie les declarations TopOpt supportees
+dans le worker existant. CAD ne recoit que des maillages RoboGen revision-locaux ;
+transformations rigides/couleurs/compound sont composes, booleens aval refuses.
+Le snapshot inclut les rapports numeriques affiches dans Optimisation. Voir
+ADR-012 pour le prereglage fixe, les capacites refusees et la provenance. Aucun
+support exact du bipede ni modele physique robot valide n'est apporte par ce
+raccordement ; les constats precedents sont historiques.
+
+Mise a jour iteration 9 : Conception prepare domaine/preserve/keepout sans FEM
+ni SIMP. Ces projections sont separees des meshes exportables. Optimisation lance
+une commande explicite par PartId dans le worker ; les autres resultats sont
+conserves. Une edition invalide conservativement les resultats sans recalcul.
+Le panneau expose les reglages numeriques, les etats et les rapports par piece.
+Cette decision remplace le calcul automatique de l'iteration 8 (ADR-012).
+
+Iteration 10 : le bipede porte onze preparations dans la scene de ses dix-sept
+composants. TopologySpec schema 2 distingue materiau inconnu (Option<MaterialId>)
+et materiau physique declare. Une preparation incomplete reste affichable, sans
+resultat exportable ; Project/CLI/TopOpt refusent son execution E347. L'UI lit
+les donnees manquantes et desactive le lancement. Les types tiers restent prives.
+Cela ne rend pas disponibles minimize_mass ni les charges robotiques (ADR-012).
+
+Iteration 13 : Project sait piloter le processus local TopOpt.jl pour des
+diagnostics minimize_mass. Les types tiers restent dans l'adaptateur Julia ;
+robogen-topopt valide les evenements et emet MassDiagnostic (source/revision,
+grille/densites/metriques). Le worker existant relaie le dernier etat vers le
+snapshot et la vue Optimisation native. Diagnostics et maillages exportables
+sont separes : aucune qualification mecanique ou publication de support n'est
+deduite d'une visualisation. Les preparations incompletes restent refusees E347.
+Le chemin historique avec reanalyse conserve ses contrats. Voir ADR-008 pour
+les budgets de processus, l'annulation et les capacites experimentales.
+
 ## Intention
 
 RoboGen est une application desktop native de conception robotique parametrique. Elle ne juxtapose pas un modeleur, un simulateur et un outil d'apprentissage : ces fonctions projettent toutes un meme modele semantique issu du DSL `.rgn`.

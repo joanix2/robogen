@@ -131,3 +131,55 @@ globales [1,2,3] m creait un faux conflit sur une geometrie de 120 mm ; cette
 normalisation le corrige sans elargir les regions avec une tolerance arbitraire.
 Le test conserve les masques, poids/centres d'interface et dimensions lors du
 deplacement commun. Les predicates restent en virgule flottante, non certifies.
+
+## Publication dans le document (iteration 8, 2026-10-08)
+
+Cette section remplace le constat d'indisponibilite globale de Project ci-dessus.
+Project compose l'execution TopOpt et CAD sans modifier le modele semantique.
+ResolvedTopologyKernel consomme une table revision-locale de maillages RoboGen
+indexes par OptimizationId. Aucun type de solveur ne franchit la frontiere CAD.
+Translation, rotation, couleur et compound sont autorises autour des resultats ;
+les booleens aval restent refuses faute de revalidation mecanique. Les charges
+restent locales : un placement ne transforme pas celles-ci en gravite globale.
+
+ProjectSnapshot publie maillages et TopologyReport ensemble : nom/ID, span,
+materiau, revision, origine, reglages, backend, iterations, masse et reanalyse de
+chaque cas (compliance, deplacement maximal, residu). Le worker conserve garde
+de revision et annulation ; aucune mutation du source ni cache persistant.
+Les rapports precedents sont marques obsoletes lorsque le document est invalide
+ou en calcul, export desactive. CAD valide indices/coordonnees, mais ne certifie
+pas la mecanique d'un maillage fourni par un autre appelant.
+
+Le chemin document utilise le prereglage de la fixture manuelle : cellules
+[12,4,2], filtre 12 mm, seuil 0.65, limite 100 iterations. Ces valeurs sont
+exposees dans le rapport natif, pas adaptees silencieusement pour obtenir une
+forme. Seule la CLI/API permet actuellement d'autres reglages. Ce prereglage ne
+convient pas aux fixations millimetriques sans etude de resolution. Les capacites
+absentes restent refusees : E330 encapsule le diagnostic TopOpt localise.
+
+## Preparation puis calcul explicite (iteration 9)
+
+Decision utilisateur du 2026-10-08 : la compilation ne lance plus TopOpt.
+CAD projette separement les volumes domaine/preserve/keepout, sans attribution
+de proprietes mecaniques. Ces apercus ne rejoignent jamais les meshes exportables.
+Project orchestre une commande explicite par PartId dans le worker existant.
+Les resultats des autres pieces sont conserves. Une edition de source invalide
+conservativement tous les resultats TopOpt sans relancer le solveur ; le worker
+rejette les travaux obsoletes. Les reglages numeriques sont propres au lancement.
+La preparation geometrique n'implique pas que le backend accepte les contraintes.
+
+## Preparation incomplete du bipede (iteration 10)
+
+`topology(..., material: unknown, load_cases: [], constraints: [], ...)` declare
+explicitement une preparation sans donnees mecaniques inventees. Dans ce mode,
+preserve peut aussi etre vide lorsque les interfaces restent a mesurer. Les
+geometries sont affichees par le chemin de preparation existant ; aucune n'est
+un resultat calculable ou exportable. Les autres arguments restent requis et
+les declarations effectivement fournies restent validees. Une faute de nom de
+materiau reste une erreur, seul le mot reserve `unknown` designe cette absence.
+
+TopologySpec schema 2 porte un Option<MaterialId>. Les sources existantes restent
+compatibles ; recompiler les anciens IR/caches derives depuis .rgn. Un materiau
+de presentation sur Part ne remplit jamais ce champ implicitement. Toute requete
+incomplete est refusee avant le solveur avec provenance et donnees manquantes.
+Le backend disponible ne gagne aucune capacite minimize_mass par cette extension.

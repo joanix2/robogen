@@ -41,7 +41,7 @@ pub struct BoundaryConditions {
     pub forces: Vec<NodalForce>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Compliance(f64);
 impl Compliance {
     pub fn joules(self) -> f64 {

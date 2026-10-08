@@ -598,3 +598,984 @@ Reload Window depuis Ctrl+Shift+P. Le handshake est verifie ; disparition visuel
 de l'alerte apres rechargement non observee ici. Commit local autorise, sans push.
 
 ### user
+
+### agent
+
+## Apercu du robot demande par l'utilisateur
+
+Ouverture native de examples/mini_biped/main.rgn et capture du contenu de la
+fenetre RoboGen. La capture utilisateur confirme le meme etat : 17 composants
+disposes, camera en tete, carte/batterie au torse, servos des bras et jambes.
+Les composants restent separes car les supports porteurs ne sont pas generes.
+Le solveur TopOpt executable via CLI sur la fixture manuelle n'est pas encore
+raccorde aux supports du bipede ni a la publication du document desktop.
+Aucun robot assemble mecaniquement ou capable de marcher n'est revendique.
+Cette demonstration ne change pas les sources ni les acceptations ouvertes.
+
+### user
+
+2026-10-08 : « fait le alors » : raccorder les supports generes au bipede.
+
+### agent
+
+Iteration 8 : etat relu, iterations 5-7 presentes ; ne pas les refaire.
+Premier verrou logiciel : Project refuse encore tous les noeuds topology, meme
+quand execute_topology sait produire un solide reanalyse. Plan autorise :
+composition CAD des resultats sous transforms/color/compound, publication dans
+le worker existant avec revision/annulation et rapport numerique, tests du
+document et refus des booleens aval non revalides. Ne pas inventer des palonniers
+ou charges robot reelles ; les interfaces de sortie restent inconnues.
+
+### user
+
+Choix : « Fixations exactes ». Puis : « regarde le progfamme du servo dan le dsl
+il y a toutes les cotes ».
+
+### agent
+
+## Iteration 8 - Publication verifiee, interfaces robot encore incompletes
+
+Relecture directe de examples/servo/main.rgn : boitier 11.8 x 22.5 x 22.7 mm,
+pattes z=15.9..18.4, trous diametre 2 mm aux centres (5.9,-2.4) et (5.9,24.9),
+entraxe 27.3 mm. Arbre diametre 4.6 mm, hauteur 3.2 mm, sommet z=29.9 mm.
+Ces cotes existent bien et permettent les attaches fixes du boitier. Le fichier
+ne contient aucun palonnier, profil de cannelures, taraudage ni vis de retenue.
+Ne pas confondre cylindre d'encombrement et fixation transmettant un couple.
+Le README precise que ce modele retranscrit des captures, pas un plan fabricant.
+Le choix utilisateur exclut des interfaces provisoires : les supports articules
+ne sont pas generes avec des cotes inventees. Reference/plan cote du palonnier
+et fixation sur arbre restent necessaires, ainsi que charges/materiaux robot.
+
+Travail logiciel termine pour les declarations deja supportees :
+- ResolvedTopologyKernel compose maillages calcules sous translation/rotation,
+   couleurs et compound, refuse booleens aval et donnees de maillage invalides.
+- Project execute TopOpt, restaure l'origine de grille et publie maillages plus
+   rapports numeriques dans un snapshot atomique. Aucun source genere substitue.
+- Worker/revision/annulation, refus des capacites absentes, dernier resultat
+   valide et garde d'export conserves. Rebuild recalcule les charges declarees.
+- Menu TopOpt calculable (charges manuelles) et rapport natif Optimisation.
+   Le prereglage [12,4,2], filtre 12 mm, seuil 0.65, limite 100 est affiche ;
+   aucun ajustement automatique, reglages differents disponibles via CLI/API.
+   Ce prereglage ne valide pas les interfaces millimetriques des servos.
+
+Verification : 144 tests workspace, cargo fmt --check, Clippy workspace
+all-targets -D warnings, build desktop et diagnostics editeur passes. Tests
+ajoutes : composition rigide, maillages invalides, publication reelle, charge
+doublee/compliance quadruplee, refus de depassement avec snapshot conserve,
+annulation pendant execution, historique asynchrone et revisions obsoletes.
+Les premiers essais Clippy ont revele des expect interdits dans les nouveaux
+tests ; corriges, puis gates completes reexecutees avec succes.
+
+Controle natif X11 de notre processus, sans modifier la fenetre du bipede deja
+ouverte : rapport/solide visibles a 1080x831 puis 1080x680, sans chevauchement.
+Capture docs/screenshots/topology-publication-native.png. Fixture mesuree :
+22 iterations, 216 g, 83.33 % du volume, 336 triangles ; chaque cas ~2.0146e-7 J,
+deplacement maximal ~0.000220 mm. Ce n'est pas un support du bipede.
+
+Objectif global non termine : les 17 composants du bipede restent inchanges,
+sans bassin/cuisses/tibias/pieds/liaisons de bras generes. Aucun assemblage exact,
+fabricabilite ou marche revendique. Pas de changement de lane ni push ; travail
+laisse non committe tant que cette demande de supports exacts reste bloquee.
+
+### user
+
+2026-10-08 : premiere phase sans calcul d'optimisation topologique : afficher
+le domaine, les zones a conserver et les zones a supprimer. Puis, dans la
+partie Optimisation, lancer le calcul independamment pour chaque piece.
+Deux maquettes jointes illustrent les couches domaine/preserve/keepout,
+la selection des interfaces, les charges, les reglages et les resultats.
+
+### agent
+
+## Correction du workflow - preparation puis calcul explicite par piece
+
+Ce decoupage remplace le declenchement automatique introduit en iteration 8.
+Lecture du chemin actuel : Project::from_source_controlled -> build_all_meshes
+-> resolve_topology -> execute_topology ; rebuild appelle egalement le solveur.
+Le calcul est donc actuellement lance a la compilation de chaque declaration,
+ce qui ne correspond pas au workflow demande.
+
+Comportement retenu pour la prochaine implementation :
+
+1. Conception : afficher les composants et les declarations geometriques
+   TopOpt (domaine, preserve, keepout), avec couleurs distinctes, transparence
+   ou contours et visibilite independante des couches. Aucun FEM/SIMP lors du
+   chargement, de l'edition, de l'annulation/retablissement ou du changement
+   d'onglet. Ces volumes sont une preparation, pas des solides optimises.
+2. Optimisation : selectionner une piece, consulter ses domaines/interfaces,
+   definir/verifier charges, materiau, objectifs et reglages numeriques, puis
+   lancer explicitement cette piece. Une capacite non implementee bloque son
+   calcul avec un diagnostic, pas la visualisation de ses regions declaratives.
+3. Etat par piece : non calculee, en cours, calculee, obsolete, echec ou annulee.
+   Progression et annulation concernent le travail selectionne. Le calcul d'une
+   piece ne lance pas celui des autres et ne remplace pas leurs resultats valides.
+4. Conserver la provenance et les revisions : une modification des entrees d'une
+   piece invalide son resultat ; pas de recalcul automatique. Un resultat d'une
+   ancienne revision n'est jamais publie comme actuel. Au depart, une invalidation
+   conservative plus large est acceptable si affichee clairement ; ne pas
+   promettre une invalidation fine avant de verifier les dependances.
+5. Seul un resultat reel, valide et actuel est exportable comme support. Le
+   domaine/preserve/keepout ne doit jamais devenir un faux resultat dans la table
+   des maillages exportables. Le DSL reste la specification source ; les surfaces
+   calculees demeurent des projections separees.
+
+Verification discriminante a ajouter : ouvrir puis modifier un document de deux
+pieces topology sans aucune invocation du solveur ; afficher ses trois couches ;
+lancer A explicitement et verifier que B reste non calculee ; lancer B sans perdre
+A ; tester annulation, edition pendant calcul, resultats obsoletes et export.
+Les images guident l'organisation des vues, pas des valeurs de contraintes ou
+des formes finales a simuler. Aucun chiffre de leur maquette n'est une mesure.
+
+Les cotes de palonniers manquantes ne bloquent pas cette separation logicielle
+ni la visualisation des domaines declares. Elles restent requises pour definir
+les vraies interfaces de sortie du robot, pas pour modifier le workflow.
+
+Ce tour consigne la decision et le plan ; aucune source produit modifiee, aucun
+nouveau test execute ni commit. Le calcul automatique de l'iteration 8 reste
+present tant que ce changement n'est pas implemente. Acceptations precedentes
+conservees comme historiques, pas comme validation du nouveau comportement.
+
+### user
+
+implemente
+
+### agent
+
+## Iteration 9 - Preparation sans calcul, optimisation explicite par piece
+
+Implemente selon le workflow corrige. Chargement, edition, undo/redo et changement
+d'onglet ne lancent plus FEM/SIMP. CAD projette domaine/preserve/keepout avec les
+transformations englobantes ; Project conserve ces trois couches dans une table
+de preparation distincte des maillages exportables. Une declaration dont les
+capacites mecaniques sont indisponibles reste visualisable si elle est valide
+semantiquement/geometriquement. Aucun schema DSL incomplet implicite ajoute.
+
+Optimisation : selection de piece, etat, reglages numeriques du prochain calcul
+(grille, filtre, seuil, limite d'iterations), consultation des contraintes du DSL
+et bouton Lancer cette piece. L'edition des interfaces/charges/materiaux reste
+dans le DSL via son historique. Le worker execute uniquement la piece choisie,
+preserve les resultats des autres et rejette un deuxieme lancement simultane.
+Etats distincts : non calculee, en cours, calculee, obsolete, echec, annulee.
+Un echec de calcul n'invalide pas la preparation du document.
+
+Toute edition de source invalide conservativement tous les resultats TopOpt,
+sans recalcul ; la garde de revision rejette un ancien travail. Les reglages
+numeriques sont des controles transitoires par piece, pas une mutation du DSL.
+Les rapports indiquent les reglages effectivement utilises et les reanalyses.
+Export en Optimisation : seulement la piece selectionnee et calculee. Export
+global en Conception : toutes les pieces topology doivent etre calculees.
+Les couches de preparation n'entrent jamais dans un STL. Masquer des couches
+ne change ni le cadrage de reference ni le contenu exportable.
+
+Verification : 149 tests workspace passes, cargo fmt --check, Clippy workspace
+all-targets -D warnings, build desktop et diagnostics editeur passes. Tests
+nouveaux/actualises couvrent preparation sans solveur, deux pieces calculees
+independamment, conservation du premier resultat, annulation, edition pendant
+calcul, undo/redo sans recalcul, diagnostic de capacite local a la piece et
+export selectionne sans les autres preparations. CLI check prepare sans calcul ;
+export-stl refuse une topology non resolue ; optimize-topology reste explicite.
+
+Parcours natif X11 verifie avec clics XTest : preparation batterie a trois
+couches en Conception, passage a Optimisation avec etat Non calculee, masquage
+de l'exclusion (pixels rouges du viewport 8040 -> 44, repere restant), lancement
+explicite et echec local minimize_mass avec preparation conservee. Puis chargement
+du cas manuel, etat Non calculee observe avant clic, lancement et etat Calculee :
+22 iterations, 216 g, volume 83.33 %, compliance de chaque cas ~2.0146e-7 J.
+Les fenetres 1440x831 et 1080x680 ont ete inspectees ; le gestionnaire de fenetres
+imposant sa taille, override-redirect a ete applique uniquement au client d'audit
+pour la capture compacte. Aucune image redimensionnee ou composee.
+
+Captures : docs/screenshots/topology-preparation-native.png,
+topology-selection-native.png et topology-explicit-result-native.png.
+Affichage actuel par contours de maillage, pas encore volumes transparents
+remplis, selection de faces, champ de contraintes ou surfaces lissees des maquettes.
+Ces limites sont documentees sans chiffres ni formes simules.
+
+Cette iteration livre le workflow demande, pas les interfaces mecaniques ni
+les supports du bipede. La derniere acceptance de l'iteration 8 et l'objectif
+global restent ouverts. Aucun changement de lane, commit ou push ; les travaux
+preexistants et la fenetre du bipede n'ont pas ete reinitialises.
+
+### user
+
+Proposition d'architecture : ne plus developper FEM/SIMP maison ; conserver le DSL
+declaratif, compiler un probleme numerique independant du solveur et deleguer a
+une bibliotheque. Premier candidat Rust -> Python -> Scikit-Topt via IR JSON ;
+TopOpt.jl comme alternative, PyTopo3D/CUDA experimental, FEniCS pour plus tard.
+La valeur de RoboGen est la deduction des interfaces, keepouts et charges robot.
+
+### agent
+
+## Orientation backend externe - verification et decision de prototype
+
+Orientation retenue et documentee dans ADR-008, sans substitution du runtime dans
+ce tour. Le DSL produit deja TopologySpec/TopologyRequest ; c'est execute_topology
+et son couplage FEM/SIMP qui doivent evoluer. Le port TopologyOptimizer actuel est
+un squelette et n'est pas le dispatcher effectif de cette execution. Le travail
+UI/preparation/commandes par piece de l'iteration 9 reste reutilisable.
+
+Scikit-Topt est le premier candidat, pas encore un backend valide. Documentation
+officielle consultee : scikit-fem, elastique 3D par exemple Hex1, forces multiples,
+OC et interpolation SIMP/RAMP annonces ; Python 3.10-3.13 avec restrictions de
+visualisation en 3.13, licence Apache-2.0 annoncee. API verifiee documentairement :
+LinearElasticity.from_facets + OC_Config/OC_Optimizer, parameterize/optimize.
+Le README garde Multiple BC Conditions et arret de boucle au TODO : les appuis
+distincts par cas, preserve/void apres filtrage et annulation restent a tester.
+Le tag 0.3.10 expose un pyproject avec version interne 0.3.9 ; ne pas figer une
+version sans verifier l'artefact reel et verrouiller ses dependances.
+
+TopOpt.jl documente MultiLoad, regions fixes, tetra/hexa et contraintes composables :
+alternative si le prototype Python ne passe pas les contrats. PyTopo3D documente
+obstacles et CUDA, mais la minimisation de masse reste en roadmap dans la version
+consultee ; cas multiples independants non verifies. nvidia-smi indique RTX 3060
+sur cette machine, non la RTX 3090 mentionnee dans la proposition.
+
+Correction semantique importante : minimiser la compliance sous budget de volume
+ne satisfait pas une declaration minimiser la masse sous limites de resistance.
+Refuser une capacite absente ; ne jamais renommer l'objectif pour faire tourner
+un exemple. Meme principe pour stress, frequence et fabrication. Automatiser des
+charges robot necessite toujours masses/COM, poses, couples et hypotheses reels.
+
+Prochaine tranche proposee : processus Python local isole (Python 3.12 candidat),
+IR numerique versionnee avec SI/reperes/connectivite/regions et cas distincts,
+provenance et identite de backend, protocole progression/annulation/resultat borne.
+Le backend prend aussi en charge la reanalyse mecanique ; RoboGen garde controles
+geometriques et publication. Premier essai sur la fixture existante, deux charges
+opposees et preserve/void, puis contrats d'appuis differents, annulation/revision,
+budget/regions et reanalyse de la reconstruction. Conserver le coeur historique
+et ses tests comme reference provisoire jusqu'a cette preuve, sans prolonger le
+FEM maison pour imiter la bibliotheque. Pas de cinq backends simultanes.
+
+Travail de ce tour : recherche documentaire et orientation ADR, aucun paquet
+installe, aucun source produit modifie ni backend execute. Les 149 tests de
+l'iteration precedente ne sont pas une validation de Scikit-Topt ; non reexecutes
+pour ces modifications documentaires. git diff --check passe ; aucun diagnostic
+editeur sur ADR-008, TECHNICAL.md et cette tache. Pas de commit, push ou changement
+de lane.
+
+### user
+
+Pour le ticket precedent, la priorite est de minimiser la masse.
+
+### agent
+
+## Priorite clarifiee - minimisation de masse
+
+La priorite du ticket 15 est minimize_mass sous contraintes mecaniques et de
+fabrication declarees, pour tous les cas de charge, avec interfaces conservees
+et zones exclues respectees. La rigidite/resistance suffisante est une condition
+de faisabilite ; maximiser la rigidite a volume fixe n'est pas l'objectif livre.
+
+Cette clarification prime sur l'ordre de prototype propose precedemment : choisir
+la bibliotheque pour sa capacite verifiee a minimiser la masse sous les contraintes
+requises, pas pour la seule disponibilite d'un exemple SIMP/compliance. Scikit-Topt
+n'est donc pas impose ; comparer notamment TopOpt.jl si le premier candidat ne
+convient pas. Ne pas recreer un solveur maison pour contourner ce choix.
+
+La prochaine preuve doit porter directement sur minimize_mass : reference faisable,
+masse avant/apres, contraintes controlees pour chaque cas et reanalyse du solide
+reconstruit. Un budget de volume reduit arbitrairement ou une compliance amelioree
+ne prouve pas cette acceptance. Rapporter convergence et tolerances sans pretendre
+garantir un minimum global. Refuser les contraintes non supportees et diagnostiquer
+les donnees manquantes ou l'infaisabilite, sans relacher silencieusement les limites.
+
+Priorite ajoutee a la checklist et a la memoire projet. Aucun changement de moteur,
+aucun calcul lance et aucune nouvelle capacite numerique revendiquee dans ce tour.
+
+### user
+
+Actuellement, avons-nous une optimisation topologique maison et peut-on
+l'appliquer a notre robot bipede ?
+
+### agent
+
+Oui : le backend actif utilise notre FEM Hex8 et SIMP/OC, avec faer pour
+l'algebre sparse. Il calcule des exemples reels avec regions preservees/exclues,
+cas de charge distincts et reanalyse binaire. Aucun moteur externe ne l'a encore
+remplace. Le workflow prepare sans calcul puis lance explicitement par piece.
+
+Non, pas encore directement pour l'objectif du bipede : execution.rs refuse
+explicitement minimize_mass, max_stress, safety_factor, min_frequency et les
+contraintes de fabrication. Le probleme actuellement resolu est la maximisation
+de rigidite sous budget de volume/masse ; cela ne satisfait pas la priorite masse.
+
+examples/mini_biped/main.rgn reste un placement de composants, avec supports a
+generer. Il faut definir pour chaque support son domaine, ses interfaces et
+exclusions, materiau, charges/appuis et limites physiques. Les trous du boitier
+servo sont cotes, mais les interfaces de transmission exactes restent incompletes.
+Les composants achetes sont des obstacles/interfaces, pas des pieces a alleger.
+
+Suite coherente avec la priorite : valider un moteur existant pour minimize_mass
+sous les contraintes requises, puis traiter un premier support du bipede avec
+donnees physiques explicites et reanalyse. Un essai avec le moteur actuel ne
+serait qu'une etude de rigidite a budget fixe, pas une minimisation de masse
+validee du robot. Reponse de statut, aucun calcul ou changement produit ici.
+
+### user
+
+Montre-moi.
+
+### agent
+
+Une fenetre dediee a ete lancee avec examples/topology_manual/main.rgn pour
+montrer le moteur existant. Son processus s'est termine avant le lancement du
+calcul ; aucun nouveau resultat optimise n'a ete observe ou livre dans cet essai.
+
+### user
+
+Capture fournie du mini bipede : c'est sur lui qu'il faut travailler.
+
+### agent
+
+## Cible confirmee - le bipede dans sa scene
+
+La cible d'integration et de demonstration est examples/mini_biped/main.rgn,
+le robot a 17 composants montre par l'utilisateur. Ne plus substituer une poutre
+ou une piece autonome au travail demande sur ce robot. Les fixtures scientifiques
+restent utiles comme tests internes, pas comme livraison du ticket bipede.
+
+Conserver les composants achetes et leurs dimensions. Le travail porte sur les
+supports manquants : bassin, torse, cuisses, tibias, pieds, bras et camera, dans
+les reperes de cette implantation. Les composants existants servent d'interfaces
+et d'exclusions ; ne pas les alleger ou changer la disposition pour faire rentrer
+une demonstration.
+
+Prochaine tranche cible : preparer dans cette scene les domaines admissibles,
+interfaces conservees et volumes interdits des supports. Conception affiche cette
+preparation sans calcul ; Optimisation selectionne et calcule chaque support
+explicitement. Le premier support de reference du plan (camera) doit etre traite
+dans le bipede, pas comme un exemple detache remplacant la cible.
+
+La priorite demeure minimize_mass sous les contraintes requises. Les fixations
+exactes, materiaux et charges inconnus restent des blocages explicites du calcul
+mecanique, pas des valeurs inventees. Ni forme dessinee arbitrairement, ni domaine
+plein ne doit etre presente comme un support optimise. Le moteur actuel ne
+satisfait toujours pas cet objectif ; la correction de cible ne change pas ses
+capacites. Ticket/checklist recentres, aucun source produit modifie dans ce tour.
+
+### user
+
+Bah fait le.
+
+### agent
+
+## Iteration 10 - Preparation sur le bipede autorisee et livree
+
+La demande autorise l'implementation de la tranche de preparation dans la scene
+du bipede. Hypothese locale : le projecteur CAD des trois couches peut reutiliser
+les placements existants si l'IR distingue donnees physiques absentes et valeurs
+connues. Verification : preparation visible mais aucun mesh exportable ni calcul
+lorsque les donnees manquent. ADR-012 complete avant l'evolution du contrat.
+
+TopologySpec schema 2 porte Option<MaterialId>. `material: unknown` autorise les
+listes preserve/load_cases/constraints vides dans une preparation incomplete ; les
+declarations connues restent strictes. Aucun materiau de presentation ne devient
+un materiau mecanique par defaut. Project/CLI/TopOpt refusent ces requetes E347
+avec provenance, avant les evenements de calcul. L'UI expose les donnees manquantes
+en francais et desactive le lancement ; export et revisions gardent leurs gardes.
+
+examples/mini_biped/main.rgn conserve les 17 composants achetes et ajoute onze
+parts de preparation : CameraSupport, TorsoSupport, PelvisSupport et paires
+ThighSupport, ShinSupport, FootSupport, ArmSupport. Les domaines sont des choix
+de conception parametrables, pas des supports pleins calcules. Les anneaux de
+contact suivent les trous connus ; dimensions exterieures/epaisseurs des anneaux
+restent des choix de conception. Exclusions de composants voisins et percages
+declares ; aucun palonnier/spline/vis de transmission suppose.
+
+CameraSupport relie les interfaces declarees de camera et trous superieurs de
+carte dans leur pose reelle : proposition de montage, pas validation de reprise
+d'efforts par le PCB. Les sorties articulaires et liaisons entre supports restent
+a definir ; domaines potentiellement chevauchants, debattements, cables flexibles,
+outils et jeux complets restent ouverts. FOOT_HEIGHT est 40 mm pour contenir les
+deux contacts du boitier de cheville. Le document conserve minimize_mass et aucune
+charge, limite ou propriete mecanique fictive. Aucun resultat optimise revendique.
+
+Validation effectuee : tests DSL topology, deux tests Project bipede, test UI
+asynchrone bipede et test TopOpt interdisant le fallback du materiau passent.
+La suite workspace complete, cargo fmt --check, Clippy --workspace --all-targets
+-D warnings et les builds CLI/desktop passent. Aucun diagnostic editeur sur les
+sources touchees. Les tests verifient 17 meshes inchanges, 11 preparations, contacts
+dans les bornes des domaines, mouvements parametriques/IDs, E347, trois couches,
+selection CameraSupport, absence de calcul, export bloque et undo/redo.
+
+Deux defauts rencontres et corriges : Solid n'est pas un type de parametre de
+composant actuellement (wrappers dedies a la place), et metadonnees Rust obsoletes
+dans target (nettoyage cible domain/dsl/ir/render, sans modification de leurs APIs
+pour contourner le cache). Les gates ont ete relances avec succes.
+
+Verification native : nouvelle fenetre PID 734137, terminal
+5f3da1f8-a893-487e-b65c-72dc6aec31d2, lancee sur le bipede et laissee ouverte.
+Capture reelle 1080x680 : docs/screenshots/biped-support-regions-native.png,
+28 entrees et domaines/contacts/exclusions autour du robot, sans resultat numerique.
+Les tentatives de clic XTest n'ont pas produit de changement visible de tab/menu ;
+ne pas revendiquer un walkthrough manuel Optimisation ou masquage. Ces comportements
+sont verifies automatiquement par les tests UI, pas par cette capture.
+
+README bipede, TECHNICAL, architecture et ADR-012 mis a jour. La minimisation de
+masse et la publication mecanique des supports restent ouvertes : moteur actuel
+incompatible, materiau/charges/limites et interfaces de transmission manquants.
+Pas de commit de cloture, changement de lane ni modification des fenetres anciennes.
+
+### user
+
+Est-ce que tu peux lancer l'optimisation sur les pieces des jambes par exemple ?
+
+### agent
+
+CLI actuelle recompilee et inspection semantique du bipede effectuee : onze
+preparations, toujours sans charges/limites. Tentative explicite sur LeftShinSupport
+(operation 13e08b74-864a-582f-bd9e-5086bc4975bf), sortie dans un repertoire temporaire
+neuf, grille 12/4/2, filtre 12 mm, seuil 0.65. Ces reglages ne sont pas une
+resolution mecanique validee pour les fixations ; ils ne sont pas atteints ici.
+
+Commande : robogen-cli optimize-topology examples/mini_biped/main.rgn
+13e08b74-864a-582f-bd9e-5086bc4975bf <temp>/left-shin.stl 12 4 2 12 0.65.
+
+Resultat : refus E347 avant solveur, "Material not specified; Load cases and
+supports not specified; Mechanical limits not specified", span 21143..21625.
+Aucun calcul FEM/SIMP ni support genere. Aucun changement de source du robot ou
+de ses hypotheses pour contourner le refus.
+
+Deux blocages distincts : completer les interfaces de transmission et les donnees
+physiques des jambes (materiau, charges/appuis et limites), et integrer un moteur
+qui supporte minimize_mass. Le code actuel refuse toujours cet objectif meme
+avec des donnees completes. Les volumes visibles sont des preparations, pas des
+problemes mecaniques prets au calcul. La demande de lancement n'autorise pas a
+remplacer l'objectif par maximize_stiffness ou a inventer des efforts de marche.
+
+### user
+
+Planifie ce qui manque.
+
+### agent
+
+## Plan de la suite - premier tibia optimise en masse
+
+Phase plan uniquement : pas d'implementation, de nouveaux tickets, de nouvelles
+checklists ni de changement de lane. Ce plan complete les iterations existantes.
+La cible de la prochaine livraison est LeftShinSupport dans mini_biped, suite a
+la demande sur les jambes ; la camera preparee reste disponible mais n'est plus
+le premier resultat mecanique vise. Le tibia droit puis les cuisses suivront.
+
+### Point de depart et objectif
+
+Acquis : composants places, onze preparations, regions colorees, selection par
+piece, lancement explicite asynchrone, gardes de revision/export et E347 pour
+donnees absentes. Ne pas refaire ces fonctions ni appeler les boites de domaine
+des supports calcules. Le backend maison ne supporte toujours pas minimize_mass.
+
+Objectif : minimiser la masse de matiere du support, a materiau declare, sous
+les limites mecaniques et de fabrication retenues, pour chaque cas de charge.
+Ne pas remplacer cet objectif par compliance a volume fixe, ni declarer un minimum
+global garanti. Publier seulement un solide reconstruit et reanalyse, avec ses
+hypotheses, sa faisabilite, sa convergence et ses mesures avant/apres.
+
+### Lot 1 - Definir le montage du tibia gauche
+
+Responsable ROBOTICS/CAD. Partir des poses de genou et cheville existantes sans
+modifier les composants achetes. Identifier quel boitier et quelle sortie moteur
+sont rigidement relies au tibia, les axes mobiles et les chemins de transmission
+des efforts. Les contacts actuels distal_housing ne suffisent pas a decrire les
+deux extremites du support ; un ensemble de trois listes non vides ne prouve pas
+la completude du montage.
+
+Completer les interfaces exactes : palonnier, cannelure si impliquee, vis de
+retenue, entraxes, diametres, profondeur d'engagement et degagement des fixations.
+Reutiliser les cotes boitier deja presentes ; n'exiger que les cotes manquantes.
+Definir le domaine admissible, les zones conservees et les exclusions incluant
+debattement des articulations, acces outil, cables et jeux. Resoudre les
+chevauchements avec pieds, chevilles et cuisses ; pas seulement un test AABB.
+
+Sortie : deux interfaces de transmission identifiees et un domaine de tibia
+geometriquement exploitable. Controle : absence d'interference pour les poses et
+courses declarees, conservation des trous et connexions attendues, provenance
+des cotes et liste explicite des hypotheses. Aucun effort encore simule.
+
+### Lot 2 - Renseigner le probleme mecanique
+
+Responsable ROBOTICS/TOPOLOGY, avec donnees utilisateur/fabricant. Construire un
+registre valeur/unite/source/incertitude pour masses, centres de masse, couples,
+charges et materiau ; une hypothese approuvee reste etiquetee comme hypothese.
+
+Le profil connu est Finder, buse 0.4 mm, Flashforge-PLA, filament 1.75 mm,
+Standard, extrudeuse 220 C (ticket 13). Il ne fournit ni module/resistance du PLA
+imprime ni generation/volume utile de l'imprimante. Completer densite, module,
+Poisson, limite admissible et orientation/procede applicable avec provenance.
+Traiter l'anisotropie ou limiter explicitement la portee du modele isotrope.
+
+Definir les cas manuels justifies pour commencer : maintien en appui, flexion et
+couple transmis selon les poses retenues. Calculer leurs valeurs depuis masses,
+bras de levier et caracteristiques servo documentes ; ne pas inventer un facteur
+dynamique ou un effort de marche. Les cas de marche derives d'une simulation
+restent une suite M5/M8, pas un prerequis a un premier cas statique borne.
+
+Fixer pour chaque cas les appuis, forces/moments, points d'application, limites
+de deplacement/resistance et facteur de securite, en evitant de compter deux fois
+la meme marge. Ajouter flambement/fatigue seulement si requis par l'usage et
+supportes, sinon signaler le perimetre non valide. Definir epaisseur minimale,
+orientation et contraintes de fabrication avec le ticket 13.
+
+Sortie : specification du tibia complete et approuvee, reference faisable et
+criteres chiffres fixes avant optimisation. Si les entrees restent inconnues,
+le travail logiciel du lot 3 peut avancer mais aucun resultat robot valide ne
+doit etre produit. Aucun changement de contraintes automatique pour obtenir une
+forme plus legere.
+
+### Lot 3 - Qualifier un moteur existant adapte a minimize_mass
+
+Responsable TOPOLOGY/ARCHITECT/QA. Examiner prioritairement TopOpt.jl pour ses
+objectifs/contraintes composables documentes ; garder Scikit-Topt comme candidat
+seulement si son API reelle satisfait le probleme. Ce n'est pas encore un choix
+de backend valide. Ne pas imposer Python si le candidat retenu utilise Julia.
+
+Auditer version, licence, installation locale, budgets RAM/temps et capacites :
+elasticite 3D, objectif masse, sensibilites et contraintes requises, cas et appuis
+distincts, preserve/void apres filtrage, et reanalyse du solide reconstruit. Une
+bibliotheque d'algebre sparse ou un simple exemple SIMP ne suffit pas. Une
+contrainte non implementee doit empecher le lancement, pas etre ignoree.
+
+Faire un prototype borne avec l'API existante, sans recreer FEM/SIMP/MMA : cas
+analytique ou reference independante, puis entrees du tibia lorsqu'elles sont
+disponibles. Les fixtures restent des tests internes. Verifier unites, ordre des
+elements, signes/resultantes des charges, sensibilites, contraintes actives,
+infeasibilite et convergence au raffinement. Tester explicitement masse minimale
+sous limites, pas seulement baisse de compliance. Refuser une reduction de masse
+obtenue en perdant une fixation ou en violant une limite.
+
+Sortie : moteur/version qualifies et tableau de capacites avec preuves. Mettre
+a jour ADR-008 avant bascule. Si aucun candidat ne passe les contraintes, revenir
+avec le blocage ou demander un perimetre d'etude reduit ; ne pas le reduire seul.
+Conserver le backend historique comme regression jusqu'a parite des contrats,
+sans le prendre comme unique oracle et sans etendre son coeur maison.
+
+### Lot 4 - Raccorder IR, backend et commandes existantes
+
+Responsable ARCHITECT/TOPOLOGY/PROJECT. Extraire une IR numerique versionnee depuis
+TopologySpec : maillage et reperes SI, IDs/ordre des noeuds et elements, materiau,
+regions, interfaces, cas de charge, contraintes, objectif et reglages. Conserver
+revision et empreintes de source/maillage/configuration. La projection actuelle
+est conservative et limitee : choisir discretisation/budget selon les fixations
+millimetriques, pas recopier la grille 12/4/2 de la poutre.
+
+Faire du port backend un vrai chemin d'execution, au lieu d'appeler directement
+le coeur historique. Executer le moteur dans un processus local isole, avec
+environnement verrouille, protocole borne de requetes/progression/resultats,
+annulation, timeout, erreurs et controle des artefacts. Aucun type tiers public
+ni upload. Stocker backend/version, convergence et mesures par cas avec le run.
+
+Reutiliser le worker Project et la selection par PartId dans l'UI. Completer le
+controle de disponibilite : donnees, montage et capacites du moteur, pas seulement
+material/load_cases/constraints presents. Conception ne calcule rien ; lancement
+uniquement dans Optimisation. Conserver annulation, resultats independants,
+invalidation/revision et edition annulable. Tester moteur absent, crash, resultats
+malformes/non finis et absence de publication d'un run obsolete.
+
+Sortie : lancement reel d'un support eligible depuis Project/CLI/UI, diagnostic
+precis sinon. Aucune ouverture de document ne doit demarrer FEM ou optimisation.
+
+### Lot 5 - Reconstruire, reanalyser et publier le tibia
+
+Responsable TOPOLOGY/CAD/QA. Convertir les densites en solide et verifier fermeture,
+orientation, connexite utile, trous/interfaces et exclusions. Recalculer la masse
+sur la geometrie finale, pas seulement sur le champ de densites. Reanalyser cette
+geometrie avec le moteur qualifie pour tous les cas et toutes les limites ; refaire
+ces controles apres tout lissage ou modification aval.
+
+Rejeter un resultat dont la reconstruction invalide la faisabilite. Pour FDM,
+verifier les contraintes declarees et distinguer conditions imposees au solveur,
+controles geometriques et exigences non verifiables. Le taux d'infill du trancheur
+n'est pas une densite SIMP ; le trajet/parois/orientation reels peuvent changer la
+tenue et exigent une validation appropriee. Le ticket 13 reste requis avant une
+affirmation d'imprimabilite mecanique. Aucun G-code ou temps d'impression invente.
+
+Sortie visible : LeftShinSupport calcule dans le bipede, composants commerciaux
+inchanges, masse de reference/finale/reduction et marges par cas. Export STL
+selectionne uniquement apres controles ; aucun export des autres preparations.
+Verifier le parcours natif complet, a grande taille et a 1080x680 : selection,
+edition, calcul, progression, annulation, resultat, export et changement de source.
+L'inconclusivite des clics XTest precedents reste a resoudre ou a remplacer par
+un essai manuel effectivement observe, pas par une simple capture statique.
+
+### Lot 6 - Etendre aux jambes et au robot
+
+Appliquer ensuite le probleme au tibia droit et aux cuisses, puis pieds/liaisons
+de chevilles et bassin. Reutiliser parametres et contrats, pas copier aveuglement
+un resultat en miroir : chaque montage, charge et sens de couple doit etre verifie.
+Assembler les supports calcules, recontroler collisions/debattements et propager
+les changements de masse dans les cas de charge qui en dependent. Invalider et
+recalculer les resultats concernes ; documenter un critere de stabilisation pour
+toute boucle masse propre/charges. Ne pas clore le bipede avec un seul tibia.
+
+La validation dynamique, la marche et les essais physiques constituent des gates
+distinctes. Avant essai imprime : protocole sous charge, calibration, limites et
+mesures ; un calcul statique ou un export STL ne certifie pas le robot.
+
+### Ordre et criteres de livraison
+
+Lots 1 et 2 (donnees/montage) et lot 3 (qualification moteur) peuvent avancer en
+parallele. Lot 4 se stabilise apres choix du moteur et des contrats. Lot 5 attend
+les entrees du tibia et le raccordement verifies. Lot 6 attend le premier tibia
+reanalyse. Pas de nouvelle demonstration autonome a la place du robot.
+
+Premiere livraison acceptee : tibia gauche minimise en masse, toutes les limites
+declarees satisfaites sur le solide final pour les cas retenus, interfaces et
+exclusions respectees, rapport reproductible et export par piece depuis le bipede.
+Si la reference est infaisable, produire un diagnostic, pas un pourcentage de gain.
+Les tests rapides couvrent conversions, contrats et erreurs ; les benchmarks
+numeriques bornes mesurent precision/convergence et couts separement. Chaque tranche
+passe fmt, Clippy all-targets et tests workspace, avec docs/ADR et preuves dans
+la tache. Commit de ticket complet seulement apres ses acceptations, sans push.
+
+### Informations a obtenir sans les redemander inutilement
+
+Reference exacte des servos et palonniers/vis utilises ; cotes manquantes de ces
+interfaces ; masses/centres de masse des composants et charge utile ; courses et
+couples utilisables (distinguer couple de blocage et service). Confirmer le montage
+genou-tibia-cheville et les usages/poses a dimensionner. Completer les proprietes
+du PLA imprime et les reglages d'impression absents. Deriver les charges de ces
+donnees avec hypotheses explicites, plutot que demander a l'utilisateur d'inventer
+directement des valeurs de force.
+
+La prochaine action logicielle proposee est le lot 3 : qualifier le moteur
+minimize_mass pendant que les interfaces et donnees du tibia sont rassemblees.
+Ce tour enregistre le plan uniquement ; aucune bibliotheque installee ou calcul
+lance, aucun changement des sources produit ou des TODOs.
+
+### user
+
+Implémentez et va chercher les informations sur Internet nécessaires.
+
+### agent
+
+## Iteration 11 - Implementation du prototype externe et recherche materielle
+
+Autorisation appliquee au plan en six lots, TODO ajoute. LeftShinSupport reste la
+cible ; les tests internes ne remplacent pas une livraison sur le bipede.
+Hypothese : les fonctions composables de TopOpt.jl permettent une minimisation
+de masse avec regions imposees et limites nodales. Check discriminant : execution
+3D de l'API reelle, verification par cas, masques et convergence, sans changer
+les limites pour obtenir une forme.
+
+Julia 1.10.10 Linux x86_64 installe sous target/topopt-tools, archive officielle
+verifiee SHA-256 6a78a03a71c7ab792e8673dc5cedb918e037f081ceb58b50971dfb7c64c5bf81.
+TopOpt 0.14.0 (MIT), Ferrite 1.7.0 et NonconvexMMA 1.1.2 installes, graphe complet
+verrouille dans crates/robogen-topopt/backends/topopt-jl/Manifest.toml. Aucun
+service externe, upload, privilege administrateur ou backend IA utilise.
+
+La release echoue au chargement : noms T communs aux champs et parametres de
+TemperatureFun/TemperatureResult. Puis son filtre lit cell.cellid (vecteur dans
+Ferrite 1.7) au lieu de Ferrite.cellid(cell). setup.jl corrige uniquement ces
+compatibilites, controle les fichiers complets par empreinte, refuse un depot
+partage/source inattendue et restaure les permissions Pkg. Identite effective :
+TopOpt 0.14.0 + robogen-compat2, pas une release originale qualifiee. Aucun
+algorithme FEM/SIMP/MMA ni formule de sensibilite remplace. Pas de publication
+de correctif amont faite au nom de l'utilisateur.
+
+mass.jl implemente un noyau experimental de minimum de masse homogene : fonction
+VolumeFun, filtre puis reapplication exacte des masques, DisplacementFun pour la
+norme nodale maximale, un solveur/une limite par cas et optimisation MMA. Budgets
+cas/cellules/iterations, controles simples, callbacks de progression/annulation.
+Aucun raccordement Rust/Project/UI ; ce n'est pas encore le processus supervise
+du lot 4. Toujours publishable=false ; aucun resultat robot ou STL produit.
+
+Verification effectivement executee :
+- Premier test sans filtre, compliance bornee : 7 assertions passent. Masse du
+   champ 340.2 -> 97.1661 g, limite 7.98804e-8 J, violation normalisee 3.74335e-10.
+- Deux cas +1/-2 N distincts, filtre 15 mm et limites nodales 8e-8/1.6e-7 m :
+   13 assertions passent, 3 echouent. Conservation des masques et proportion des
+   reponses passent, ainsi que refus d'entrees et annulation avant lancement.
+- A 500 iterations (apres echec a 200), masse candidate 183.2942 g contre
+   reference 337.4625 g, deplacements 8.0003217e-8/1.6000643e-7 m ; violation
+   8.04336e-5 > tolerance 1e-5 ; KKT .00243068 > 1e-4. Faisabilite et convergence
+   non acquises. Aucune relaxation des limites ni qualification revendiquee.
+- cargo fmt --check, cargo clippy --workspace --all-targets -- -D warnings et
+   cargo test --workspace passent ; aucun code Rust modifie dans cette iteration.
+
+Le candidat reste donc NON QUALIFIE. Documentation/ADR-008/TECHNICAL explicitent
+les echecs et la reproduction (commande Julia attend actuellement exit 1).
+Avant nouvelle tentative, diagnostic des gradients composes par differences
+finies et des maxima/contraintes redondantes recommande. Appuis differents,
+stress, fabrication, convergence au raffinement et reanalyse externe du binaire
+ne sont pas verifies. Les exemples Web ne suffisent pas : le tutoriel stress
+distingue lui-meme stress relaxe et contraintes microscopiques depassant la limite.
+
+Recherche primaire consignée dans examples/mini_biped/README.md :
+- TowerPro SG90 digital : 9 g, largeur 12.2 mm contre 11.8 dans le DSL ; couple
+   de blocage 1.8 kgf.cm a 4.8 V, soit environ .17652 N.m, pas couple de service.
+   Identification du servo/palonnier reel non etablie ; aucune valeur injectee.
+- Raspberry Pi : Camera Module 1/OV5647, 3 g nominal, enveloppe environ
+   25x24x9 mm ; confirmer module reel, accessoires et centre de masse.
+- NVIDIA : page carte porteuse/module Orin Nano consultee, mais aucune preuve
+   d'identite avec la carte visuelle. Ses trous sont estimes selon son README,
+   et ne deviennent pas exacts parce que des contacts les referencent.
+- Flashforge : page HS PLA retrouvee (les URLs PLA generiques rendaient 404),
+   reglages d'impression disponibles mais ni identification du PLA possede ni
+   ensemble de proprietes mecaniques imprimees requis. Pas de substitution HS.
+- Batterie OEM : les comparaisons existantes n'identifient pas le pack reel ;
+   53 g reste une comparaison, pas une masse attribuee au robot.
+
+Suite bloquee sur deux axes independants : qualification numerique et donnees/
+interfaces reelles du tibia. Peut-on poursuivre un diagnostic approfondi des
+gradients de TopOpt.jl avant de reconsiderer le candidat ? Pour le montage,
+fournir la reference exacte ou le lien d'achat des servos/palonniers et la
+reference de bobine PLA permettra de cibler les fiches utiles sans deviner.
+Travail conserve non committe ; aucune lane ni fenetre native modifiee.
+
+### user
+
+### agent
+
+Notification terminal : le processus desktop du terminal
+5f3da1f8-a893-487e-b65c-72dc6aec31d2 est termine et le terminal nettoye.
+La notification ne precise pas la cause ; aucune relance ni nouveau calcul.
+Le bilan de qualification de l'iteration 11 reste inchange.
+
+### user
+
+C'est quoi cette histoire? Pourquoi ce n'est pas dans le logiciel? Tu crois
+que j'aurais dû faire en Python de base? ca part en couille ton truc.
+
+### agent
+
+Le detour vers une page Web est une erreur de livraison, pas une consequence du
+choix de Rust. Verification du code actuel : robogen-project appelle encore
+execute_topology avec FaerSolver ; mass.jl et viewer.html vivent dans le prototype
+externe, sans raccordement a ce chemin. Le viewer montre le benchmark 8x4x4,
+pas une piece du bipede. Il ne repond donc pas a la livraison native demandee.
+
+Une reecriture generale en Python n'est pas justifiee : elle ne resoudrait ni
+le raccordement absent, ni les echecs numeriques, ni les interfaces physiques
+manquantes. L'application native peut piloter un moteur specialise local ; Julia
+ou Python concerne l'adaptateur de calcul, pas obligatoirement toute l'application.
+
+Distinction corrigee : un calcul non converge doit pouvoir etre inspecte dans
+Optimisation comme diagnostic (densites, historique, ecarts aux limites), sans
+devenir un solide valide ni exportable. La qualification mecanique bloque la
+publication, pas toute visualisation des donnees obtenues. La suite doit terminer
+ce chemin natif, avec execution/progression/annulation et revision, puis traiter
+LeftShinSupport avec ses entrees reelles. Pas de nouvelle application de
+demonstration ni substitution du benchmark au robot.
+
+Ce tour repond a la question et constate les responsabilites ; aucun raccordement
+produit ni changement de langage n'est pretendu realise. Les fichiers existants
+sont preserves, sans suppression du travail precedent ou changement de lane.
+
+### user
+
+Corrige tout çaet implémente
+
+### agent
+
+Implementation du recentrage natif autorisee. Iteration 13 : projection commune
+sans substitution d'objectif, adaptateur Julia local avec protocole versionne,
+diagnostics de densites/metriques conserves dans le worker existant et affichage
+dans Optimisation. Les calculs non converges restent non exportables. Le bipede
+reste la cible ; ses entrees physiques manquantes ne sont ni inventees ni
+remplacees par le benchmark Web. Pas de reecriture Python, pas de nouvelle
+application de demonstration. Les artefacts Web existants sont preserves mais
+ne servent pas de chemin produit.
+
+Premiere verification : le test mass_projection_keeps_geometry_and_loads_without_running_oc
+passe ; la projection garde masques, origine, appuis et forces, et OC refuse
+toujours minimize_mass. Le test compare explicitement les champs de GridLoadCase.
+
+### user
+
+Il faut augmenter la précision du calcul parce que là les cases de la grille
+sont trop larges et du coup ça ne fonctionne pas.
+
+### agent
+
+Iteration 14 : remplacer le reglage grossier de la minimisation de masse par
+une maille cible physique dans Optimisation. Separations conservees : le budget
+FEM historique reste inchange et aucune interpolation graphique ne remplace
+un calcul fin. Projection 2.5 mm testee : 48x16x8 = 6144 cellules, forces
+conservees. Execution Julia reelle a deux iterations : 78.6 s, pic RSS
+3269848 KiB (environ 3.12 Gio), reference 259.2 g, candidat 72.008 g, non converge.
+Ces valeurs sont celles du controle interne, jamais celles du bipede.
+
+### user
+
+Tu peux utiliser la carte graphique si tu veux pour pouvoir accélérer le temps de calcul.
+
+### agent
+
+GPU autorise. Verification nvidia-smi : RTX 3060, 12288 MiB, environ 11211 MiB
+libres lors du controle. TopOpt 0.14.0 utilise actuellement la factorisation
+sparse CPU ; le code CuVector trouve est commente et CUDA n'est pas une
+dependance active. Pas de faux commutateur GPU ni de remplacement non qualifie.
+Le raffinement natif continue ; l'acceleration GPU reste un adaptateur distinct
+a mesurer et qualifier, pas une option disponible de ce moteur.
+
+### user
+
+### agent
+
+Iteration 14 implementee : Optimisation propose une maille cible de 2.5 mm pour
+minimize_mass, conserve le mode XYZ et affiche cellules, dimensions physiques et
+DOFs. Grille impossible : lancement bloque, pas de sous-resolution silencieuse.
+L'apercu retire les faces interieures et partage les sommets sans lisser les
+densites : 5120 triangles de bord au lieu de 73728 pour le bloc plein 48x16x8.
+
+Tests passes : projection fine et forces, execution Julia reelle a 6144 cellules,
+controle natif des reglages, maillage de bord, test UI/Julia avec comparaison et
+refus d'export, tests workspace, Clippy --workspace --all-targets -D warnings,
+fmt et builds desktop/CLI. Aucun defaut editeur sur les fichiers verifies.
+Capture native 1440x831 : docs/screenshots/topology-grid-resolution-native.png.
+Nouvelle instance PID 834061, terminal 9383e9ba-a60c-42c5-8b37-578e38613179,
+laisse le bipede ouvert dans Optimisation. Les autres instances ont ete preservees.
+
+Limites : pas d'acceleration GPU active ; candidat numerique non converge ;
+la maille 2.5 mm n'est pas une preuve de resolution des fixations de 2 mm.
+Interfaces, materiau et charges exactes du tibia restent incomplets, sans support
+du robot calcule ni export autorise. Pas de commit de cloture ni changement de lane.
+
+### user
+
+### agent
+
+Notification : le terminal 9383e9ba-a60c-42c5-8b37-578e38613179 est termine et
+nettoye. Verification : aucune instance robogen-desktop dans la liste des
+processus. La fin du journal /tmp/robogen-grid-refinement-native.log ne precise
+pas la cause de fermeture ; elle montre le demarrage du rendu NVIDIA et des
+avertissements Vulkan. Le message de terminal mentionne un ancien chemin Snap
+absent, sans etablir un lien causal avec l'arret. La fenetre n'est donc plus
+ouverte ; les captures et validations restent acquises. Aucune relance, aucun
+nouveau calcul ni modification de l'environnement.
+
+### user
+
+Vasyrelanceet, montre-moi ce que ça donne la jambe du robot.
+
+### agent
+
+RoboGen relance sur examples/mini_biped/main.rgn, PID 837361, terminal
+c594ffc4-e190-4116-a11d-3199f97740ca. Selection LeftShinSupport confirmee
+visuellement dans Optimisation et zoom rapproche sur la jambe gauche.
+Capture : docs/screenshots/biped-left-shin-current-native.png (1440x831).
+
+La vue montre la preparation du tibia entre les servos, pas un support optimise.
+Reglage affiche : maille cible 2.5 mm, grille prevue 28x24x36 = 24192 cellules,
+maille reelle projetee 2.429x2.500x2.472 mm. Aucun nouveau calcul n'a ete lance :
+materiau, charges/appuis et limites mecaniques restent manquants ; le lancement
+reste desactive. L'application est laissee ouverte sur cette selection.
+
+### user
+
+c'est du PLA, créer des estimation pour le reste on mettra les vrai valeur plus tard
+
+### agent
+
+Iteration 15 : hypothese de travail autorisee sur LeftShinSupport. PLA imprime
+idealise isotrope : densite 1240 kg/m3, E=2 GPa, nu=0.35, resistance nominale
+estimee 25 MPa (non controlee par le moteur). Charges manuelles provisoires :
+40 N verticaux (2 kg x 9.81 m/s2 x facteur 2, arrondis) et 10 N lateraux,
+fleche limite 0.5 mm. Deux cas independants pour les directions transversales.
+Une liaison proximale ideale remplacera temporairement les donnees de palonnier
+manquantes ; aucune cote de palonnier ni validation fabricant n'est revendiquee.
+Plan : parametres DSL explicites, declaration locale au tibia, verification de
+projection et de conservation des charges, puis vue native actualisee. Les
+composants achetes et les protections contre l'export non valide sont conserves.
+
+### user
+
+### agent
+
+Iteration 15 implementee dans examples/mini_biped/main.rgn : PLA_Estimated,
+parametres ESTIMATED_* et operation left_shin_PLA_estimated sur LeftShinSupport.
+Les dix autres supports restent incomplets. Aucun composant achete n'est modifie.
+Deux zones distales 8x4x5 mm deportees de 8 mm idealisent le transfert rigide
+aux pattes ; une zone proximale rayon 8 mm, epaisseur 5 mm, deport 4 mm
+idealise le transfert au palonnier. Ce ne sont pas des fixations mesurees.
+Les trous et enveloppes restent exclus ; les anneaux exacts ne sont pas les
+appuis FEM de cette estimation. Aucun assouplissement du projecteur conservatif.
+
+Validation : projection reelle 28x24x36 = 24192 cellules a maille cible 2.5 mm,
+sans conflit preserve/void ; resultantes [10,0,-40] N et [0,10,-40] N conservees.
+Tests biped de Project (2) et Testkit (1), test ajoute dans TopOpt/declared,
+Clippy workspace/all-targets -D warnings, tests workspace et builds desktop/CLI
+passes. Tests Julia ignores non relances : aucun nouveau solveur execute ni
+resultat de masse calcule. Documentation des valeurs et limites dans le README
+du bipede et TECHNICAL.md.
+
+Verification native : nouvelle instance PID 847021, terminal
+bd200f76-0df7-457e-ab90-250d304c8b51, selection LeftShinSupport et volet
+interfaces/charges ouvert. PLA_Estimated, les deux cas et les appuis sont visibles ;
+aucun avertissement de donnees manquantes pour ce tibia. Capture 1440x831 :
+docs/screenshots/biped-left-shin-pla-estimated-native.png. Aucun clic sur Lancer,
+etat Non calculee. Ancienne instance preservee. Les hypotheses sont remplacables
+dans le DSL ; fabrication, anisotropie PLA, resistance, efforts reels, montage
+et qualification numerique restent ouverts. Aucun commit de cloture du ticket.
+
+### user
+
+Notification : terminal c594ffc4-e190-4116-a11d-3199f97740ca termine et nettoye.
+
+### agent
+
+Verification des processus : seule la nouvelle instance PID 847021 reste active,
+chargee avec les estimations PLA. La notification concerne l'ancienne instance
+837361. Le message de chemin Snap absent ne suffit pas a etablir la cause de
+fermeture. Aucune relance ni modification de l'environnement necessaire.
+
+### user
+
+Ça serait bien de pouvoir utiliser le GPU pour le calcul parce que là c'est beaucoup trop lent.
+
+### agent
+
+Iteration 16 : mesurer et qualifier un adaptateur CUDA pour la resolution FEM
+et adjointe, sans changer charges, materiau, maille ou criteres de convergence.
+La RTX 3060 12 Gio est disponible. Un processus Julia CPU est deja actif et
+reste intact. Hypothese locale : le dispatch solve_system! de TopOpt permet
+d'accelerer les resolutions tout en conservant l'assemblage et l'optimisation.
+Premier controle discriminant : solution sparse connue et residu reel, puis
+comparaison CPU/GPU des deplacements et gradients avant integration native.
+
+### user
+
+pense à commit aussi
+
+### agent
+
+Iteration 16 implementee et verifiee : choix CPU/GPU CUDA dans Optimisation,
+CPU par defaut, backend de chaque evenement controle et affiche avec le diagnostic.
+CUDA 6.0.0 et Krylov 0.8.4 verrouilles, solveur CG Float64 avec preconditionnement
+diagonal, resolution directe et adjointe GPU ; assemblage/sensibilites/MMA CPU.
+Pas de bascule CPU silencieuse en cas d'erreur CUDA. Ancien CPU conserve.
+
+Qualification sur la requete du vrai tibia 28x24x36 (24192 cellules/80475 DOF) :
+FEM 11.90 s CPU / 1.47 s GPU, adjoint 2.43 s / 3.44 s ; deux iterations completes
+300.27 s CPU / 105.18 s GPU, soit environ 2.85x, session Julia chaude.
+Masse 56.134595 g sur les deux moteurs, deplacements 1.887961 et 1.243991 mm
+contre 0.5 mm : candidat non converge/non faisable, jamais publiable.
+Erreurs relatives FEM 1.11e-12 et gradient 2.55e-12. Tests Julia 33 assertions
+passes, dont differences finies, echelles, singularite/refus, masques et cas
+independants. Reproduction depuis le DSL : test ignore
+export_biped_gpu_qualification_request puis gpu_qualification.jl avec le JSON genere.
+
+Le seuil brut residu 1e-8 seul a echoue aussi sur CPU pour les essais quasi vides.
+Critere revise documente dans ADR-008 : erreur retrograde composante <=1e-12
+ET residu <=max(1e-8, plancher d'arrondi calcule), avec corrections bornees.
+Cela ne borne pas l'erreur de solution d'un systeme mal conditionne ; aucune
+tolerance mecanique/KKT ni maille n'est modifiee. CUDA 6.4.2/GPUCompiler 2.13
+echouait au chargement avec Julia 1.10.10 ; versions fonctionnelles verrouillees.
+
+Tests transport Rust/Julia CUDA et UI native CPU/CUDA passes separement ;
+fmt, Clippy workspace/all-targets -D warnings, tests workspace et builds
+desktop/CLI passent. L'editeur conserve quelques diagnostics rust-analyzer
+incoherents avec les compilations reussies sur mass.rs ; aucun code de calcul
+n'est modifie pour contourner ce diagnostic d'outil.
+
+L'ancienne fenetre PLA s'est fermee. Nouvelle instance PID 889729, terminal
+df731a75-28a2-4294-9375-4725da576914 : LeftShinSupport et GPU CUDA selectionnes,
+maille 2.5 mm, 100 iterations disponibles. Capture native 1440x831 verifiee :
+docs/screenshots/biped-cuda-native.png. Aucun calcul long automatique lance
+dans cette nouvelle fenetre ; les calculs de qualification ci-dessus sont reels.
+
+Commit local demande : checkpoint des changements du ticket 15, incluant les
+iterations natives/PLA dont depend CUDA, sans les fichiers du futur ticket 16 RL.
+Ce checkpoint ne cloture ni le ticket ni la qualification mecanique et ne pousse
+rien vers un depot distant. Revue de l'index et verification Git avant commit.
+
+### user

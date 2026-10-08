@@ -1,6 +1,6 @@
 use crate::{CadError, Mesh, Triangle, Vertex};
 use csgrs::csg::CSG;
-use robogen_domain::{Angle, SourceSpan};
+use robogen_domain::{Angle, OptimizationId, SourceSpan};
 use robogen_ir::{SolidGeometry, SolidOperation};
 use std::collections::BTreeMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -97,7 +97,7 @@ pub(super) fn build_cancellable(
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Mesh, CadError> {
     if wraps_compound(geometry) {
-        return build_compound(geometry, cancelled);
+        return build_compound(geometry, cancelled, &BTreeMap::new());
     }
     if cancelled() {
         return Err(CadError::Cancelled);
@@ -123,6 +123,7 @@ fn wraps_compound(mut geometry: &SolidGeometry) -> bool {
 fn build_compound(
     geometry: &SolidGeometry,
     cancelled: &dyn Fn() -> bool,
+    resolved: &BTreeMap<OptimizationId, Mesh>,
 ) -> Result<Mesh, CadError> {
     let mut pending = vec![(geometry, 1, Vec::<Transform>::new(), None)];
     let mut result = Mesh::default();
@@ -136,19 +137,54 @@ fn build_compound(
         if depth > MAX_DEPTH || visited > 4096 {
             return Err(limit(node.span, "compound depth or nodes"));
         }
-        if !wraps_compound(node) {
+        if !wraps_compound(node)
+            && (node.topology_operations().is_empty()
+                || matches!(node.operation, SolidOperation::Topology { .. }))
+        {
             bodies += 1;
             if bodies > 128 {
                 return Err(limit(node.span, "128 compound bodies"));
             }
-            let mut mesh = build_cancellable(node, cancelled)?;
+            let mut mesh = if let SolidOperation::Topology { specification } = &node.operation {
+                resolved.get(&specification.id).cloned().ok_or_else(|| {
+                    invalid(
+                        node.span,
+                        "unresolved topology operation requires an optimization backend",
+                    )
+                })?
+            } else {
+                build_cancellable(node, cancelled)?
+            };
             if result.vertices.len() + mesh.vertices.len() > 262_144
                 || result.triangles.len() + mesh.triangles.len() > 524_288
             {
                 return Err(limit(node.span, "compound output size"));
             }
+            if mesh.vertices.is_empty()
+                || mesh.triangles.is_empty()
+                || mesh.triangles.iter().any(|triangle| {
+                    triangle
+                        .indices
+                        .iter()
+                        .any(|index| *index as usize >= mesh.vertices.len())
+                })
+            {
+                return Err(invalid(
+                    node.span,
+                    "invalid resolved mesh indices or empty mesh",
+                ));
+            }
             for vertex in &mut mesh.vertices {
                 let mut point = vertex.position.map(f64::from);
+                if point
+                    .iter()
+                    .any(|value| !value.is_finite() || value.abs() * 1000.0 > MAX_COORDINATE_MM)
+                {
+                    return Err(invalid(
+                        node.span,
+                        "resolved mesh coordinates out of bounds",
+                    ));
+                }
                 for transform in transforms.iter().rev() {
                     point = match transform {
                         Transform::Translate(offset) => {
@@ -211,10 +247,22 @@ fn build_compound(
                 transforms.push(Transform::Rotate(rotation(*angles, node.span)?));
                 pending.push((shape, depth + 1, transforms, color));
             }
-            _ => return Err(invalid(node.span, "invalid compound wrapper")),
+            _ => return Err(invalid(node.span, "topology results only support rigid transforms, color and compound; Boolean operations require mechanical revalidation")),
         }
     }
     Ok(result)
+}
+
+pub(super) fn build_resolved(
+    geometry: &SolidGeometry,
+    cancelled: &dyn Fn() -> bool,
+    resolved: &BTreeMap<OptimizationId, Mesh>,
+) -> Result<Mesh, CadError> {
+    if geometry.topology_operations().is_empty() {
+        build_cancellable(geometry, cancelled)
+    } else {
+        build_compound(geometry, cancelled, resolved)
+    }
 }
 
 fn validate(geometry: &SolidGeometry) -> Result<(), CadError> {

@@ -1,6 +1,6 @@
 module mini_biped;
 
-// Initial layout only. Supports are to be generated from constraints (ticket 15).
+// Purchased components and incomplete support preparations (ticket 15).
 // X: robot left, Y: rear, Z: up. Lengths in mm, rotations right-handed.
 // These dimensions are design hypotheses, not validated robot specifications.
 parameter LEG_SPACING = 110 mm;
@@ -422,4 +422,258 @@ part HeadCamera {
     body = translate(offset: [0 mm, -5 mm, HEAD_Z],
         shape: rotate(x: 90 deg, y: 0 deg, z: 0 deg,
             shape: translate(offset: [-9.1 mm, -12.5 mm, 0 mm], shape: raspberry_pi_camera())));
+}
+
+parameter SUPPORT_WIDTH = 68 mm;
+parameter SUPPORT_DEPTH = 60 mm;
+parameter CONTACT_RADIUS = 2 mm;
+parameter CONTACT_THICKNESS = 2 mm;
+parameter FOOT_WIDTH = 48 mm;
+parameter FOOT_LENGTH = 80 mm;
+parameter FOOT_HEIGHT = 40 mm;
+
+material PLA_Estimated {
+    density: 1240 kg/m3;
+    young: 2 GPa;
+    poisson: 0.35;
+    yield_strength: 25 MPa;
+}
+
+parameter ESTIMATED_SHIN_VERTICAL_FORCE = 40 N;
+parameter ESTIMATED_SHIN_LATERAL_FORCE = 10 N;
+parameter ESTIMATED_SHIN_MAX_DISPLACEMENT = 0.5 mm;
+parameter ESTIMATED_PROXIMAL_PAD_RADIUS = 8 mm;
+parameter ESTIMATED_PROXIMAL_PAD_THICKNESS = 5 mm;
+parameter ESTIMATED_PROXIMAL_PAD_OFFSET = 4 mm;
+parameter ESTIMATED_DISTAL_PAD_OFFSET = 8 mm;
+parameter ESTIMATED_DISTAL_PAD_WIDTH = 8 mm;
+parameter ESTIMATED_DISTAL_PAD_DEPTH = 4 mm;
+parameter ESTIMATED_DISTAL_PAD_THICKNESS = 5 mm;
+
+component contact_ring(hole_radius: Length = 1 mm) -> Solid {
+    return difference(cylinder(radius: CONTACT_RADIUS, height: CONTACT_THICKNESS),
+        cylinder(radius: hole_radius, height: CONTACT_THICKNESS));
+}
+
+component servo_housing_contacts() -> Solid {
+    return compound(
+        translate([5.9 mm, -2.4 mm, 15.9 mm - CONTACT_THICKNESS], contact_ring()),
+        translate([5.9 mm, 24.9 mm, 15.9 mm - CONTACT_THICKNESS], contact_ring()));
+}
+
+component servo_exclusion() -> Solid {
+    return compound(
+        box([11.8 mm, 22.5 mm, 22.7 mm]),
+        translate([0 mm, -4.7 mm, 15.9 mm], box([11.8 mm, 31.9 mm, 2.5 mm])),
+        translate([3.4 mm, 10.8 mm, 22.7 mm], box([5 mm, 3.5 mm, 4 mm])),
+        translate([5.9 mm, 5.9 mm, 22.7 mm], cylinder(5.9 mm, 7.2 mm)),
+        translate([5.9 mm, 14.3 mm, 22.7 mm], cylinder(2.5 mm, 4 mm)),
+        translate([4.1 mm, -3 mm, 4.5 mm], box([3.6 mm, 3 mm, 12 mm])),
+        translate([5.9 mm, -2.4 mm, 10 mm], cylinder(1 mm, 15 mm)),
+        translate([5.9 mm, 24.9 mm, 10 mm], cylinder(1 mm, 15 mm)));
+}
+
+component pitch_contacts(x: Length, z: Length, turn: Angle) -> Solid {
+    return translate([x, 0 mm, z], rotate(0 deg, turn, 0 deg,
+        translate([-5.9 mm, -5.9 mm, -29.9 mm], servo_housing_contacts())));
+}
+
+component pitch_exclusion(x: Length, z: Length, turn: Angle) -> Solid {
+    return translate([x, 0 mm, z], rotate(0 deg, turn, 0 deg,
+        translate([-5.9 mm, -5.9 mm, -29.9 mm], servo_exclusion())));
+}
+
+component roll_contacts(x: Length, z: Length) -> Solid {
+    return translate([x, -20 mm, z], rotate(90 deg, 0 deg, 0 deg,
+        translate([-5.9 mm, -5.9 mm, -29.9 mm], servo_housing_contacts())));
+}
+
+component roll_exclusion(x: Length, z: Length) -> Solid {
+    return translate([x, -20 mm, z], rotate(90 deg, 0 deg, 0 deg,
+        translate([-5.9 mm, -5.9 mm, -29.9 mm], servo_exclusion())));
+}
+
+component limb_preparation(x: Length, lower: Length, upper: Length, turn: Angle) -> Solid {
+    return topology(name: "limb",
+        domain: translate([x - SUPPORT_WIDTH / 2, -SUPPORT_DEPTH / 2, lower - 12 mm],
+            box([SUPPORT_WIDTH, SUPPORT_DEPTH, upper - lower + 24 mm])),
+        preserve: [interface(name: "distal_housing", shape:
+            pitch_contacts(x, lower, turn))],
+        void: [pitch_exclusion(x, lower, turn), pitch_exclusion(x, upper, turn)],
+        material: unknown, load_cases: [], objective: minimize_mass,
+        constraints: [], manufacturing: []);
+}
+
+component estimated_shin_distal_pads(x: Length, z: Length) -> Solid {
+    pad = box([ESTIMATED_DISTAL_PAD_WIDTH, ESTIMATED_DISTAL_PAD_DEPTH,
+        ESTIMATED_DISTAL_PAD_THICKNESS]);
+    pads = compound(
+        translate([5.9 mm - ESTIMATED_DISTAL_PAD_WIDTH / 2,
+            -2.4 mm - ESTIMATED_DISTAL_PAD_OFFSET - ESTIMATED_DISTAL_PAD_DEPTH / 2,
+            10 mm], pad),
+        translate([5.9 mm - ESTIMATED_DISTAL_PAD_WIDTH / 2,
+            24.9 mm + ESTIMATED_DISTAL_PAD_OFFSET - ESTIMATED_DISTAL_PAD_DEPTH / 2,
+            10 mm], pad));
+    return translate([x, 0 mm, z], rotate(0 deg, 90 deg, 0 deg,
+        translate([-5.9 mm, -5.9 mm, -29.9 mm], pads)));
+}
+
+component estimated_left_shin(x: Length, lower: Length, upper: Length) -> Solid {
+    return topology(name: "left_shin_PLA_estimated",
+        domain: translate([x - SUPPORT_WIDTH / 2, -SUPPORT_DEPTH / 2, lower - 12 mm],
+            box([SUPPORT_WIDTH, SUPPORT_DEPTH, upper - lower + 24 mm])),
+        preserve: [
+            interface(name: "estimated_distal_rigid_transfer", shape:
+                estimated_shin_distal_pads(x, lower)),
+            interface(name: "estimated_proximal_rigid_transfer", shape:
+                translate([x + ESTIMATED_PROXIMAL_PAD_OFFSET, 0 mm, upper],
+                    rotate(0 deg, 90 deg, 0 deg,
+                        cylinder(ESTIMATED_PROXIMAL_PAD_RADIUS, ESTIMATED_PROXIMAL_PAD_THICKNESS))))
+        ],
+        void: [pitch_exclusion(x, lower, 90 deg), pitch_exclusion(x, upper, 90 deg)],
+        material: PLA_Estimated,
+        load_cases: [
+            load_case(name: "estimated_single_leg_lateral",
+                loads: [force(on: "estimated_proximal_rigid_transfer",
+                    vector: [ESTIMATED_SHIN_LATERAL_FORCE, 0 N, -ESTIMATED_SHIN_VERTICAL_FORCE])],
+                supports: [fixed(on: "estimated_distal_rigid_transfer")]),
+            load_case(name: "estimated_single_leg_fore_aft",
+                loads: [force(on: "estimated_proximal_rigid_transfer",
+                    vector: [0 N, ESTIMATED_SHIN_LATERAL_FORCE, -ESTIMATED_SHIN_VERTICAL_FORCE])],
+                supports: [fixed(on: "estimated_distal_rigid_transfer")])
+        ],
+        objective: minimize_mass,
+        constraints: [max_displacement(ESTIMATED_SHIN_MAX_DISPLACEMENT)],
+        manufacturing: []);
+}
+
+component foot_preparation(x: Length) -> Solid {
+    return topology(name: "foot",
+        domain: translate([x - FOOT_WIDTH / 2, -FOOT_LENGTH / 2, 0 mm],
+            box([FOOT_WIDTH, FOOT_LENGTH, FOOT_HEIGHT])),
+        preserve: [interface(name: "ankle_housing", shape:
+            roll_contacts(x, ANKLE_ROLL_Z))],
+        void: [roll_exclusion(x, ANKLE_ROLL_Z)],
+        material: unknown, load_cases: [], objective: minimize_mass,
+        constraints: [], manufacturing: []);
+}
+
+component board_contacts() -> Solid {
+    contacts = compound(
+        translate([4 mm, 4 mm, -CONTACT_THICKNESS], contact_ring(1.5 mm)),
+        translate([100 mm, 4 mm, -CONTACT_THICKNESS], contact_ring(1.5 mm)),
+        translate([4 mm, 86 mm, -CONTACT_THICKNESS], contact_ring(1.5 mm)),
+        translate([100 mm, 86 mm, -CONTACT_THICKNESS], contact_ring(1.5 mm)));
+    return translate([-52 mm, 22 mm, TORSO_BASE_Z], rotate(90 deg, 0 deg, 0 deg, contacts));
+}
+
+component board_upper_contacts() -> Solid {
+    contacts = compound(
+        translate([4 mm, 86 mm, -CONTACT_THICKNESS], contact_ring(1.5 mm)),
+        translate([100 mm, 86 mm, -CONTACT_THICKNESS], contact_ring(1.5 mm)));
+    return translate([-52 mm, 22 mm, TORSO_BASE_Z], rotate(90 deg, 0 deg, 0 deg, contacts));
+}
+
+component board_exclusion() -> Solid {
+    exclusion = compound(box([104 mm, 90 mm, 37 mm]),
+        translate([4 mm, 4 mm, -6 mm], cylinder(1.5 mm, 8 mm)),
+        translate([100 mm, 4 mm, -6 mm], cylinder(1.5 mm, 8 mm)),
+        translate([4 mm, 86 mm, -6 mm], cylinder(1.5 mm, 8 mm)),
+        translate([100 mm, 86 mm, -6 mm], cylinder(1.5 mm, 8 mm)));
+    return translate([-52 mm, 22 mm, TORSO_BASE_Z], rotate(90 deg, 0 deg, 0 deg, exclusion));
+}
+
+component camera_contacts() -> Solid {
+    contacts = compound(
+        translate([9.35 mm, 2 mm, -CONTACT_THICKNESS], contact_ring()),
+        translate([21.85 mm, 2 mm, -CONTACT_THICKNESS], contact_ring()),
+        translate([9.35 mm, 23 mm, -CONTACT_THICKNESS], contact_ring()),
+        translate([21.85 mm, 23 mm, -CONTACT_THICKNESS], contact_ring()));
+    return translate([0 mm, -5 mm, HEAD_Z], rotate(90 deg, 0 deg, 0 deg,
+        translate([-9.1 mm, -12.5 mm, 0 mm], contacts)));
+}
+
+component camera_exclusion() -> Solid {
+    exclusion = compound(raspberry_pi_camera(),
+        translate([9.35 mm, 2 mm, -6 mm], cylinder(1 mm, 8 mm)),
+        translate([21.85 mm, 2 mm, -6 mm], cylinder(1 mm, 8 mm)),
+        translate([9.35 mm, 23 mm, -6 mm], cylinder(1 mm, 8 mm)),
+        translate([21.85 mm, 23 mm, -6 mm], cylinder(1 mm, 8 mm)));
+    return translate([0 mm, -5 mm, HEAD_Z], rotate(90 deg, 0 deg, 0 deg,
+        translate([-9.1 mm, -12.5 mm, 0 mm], exclusion)));
+}
+
+part CameraSupport {
+    material: lib_camera_DisplayOnly;
+    body = topology(name: "camera_support",
+        domain: translate([-54 mm, -12 mm, TORSO_BASE_Z + 80 mm],
+            box([108 mm, 42 mm, HEAD_Z - TORSO_BASE_Z - 65 mm])),
+        preserve: [interface(name: "camera_mount", shape: camera_contacts()),
+            interface(name: "board_mount", shape: board_upper_contacts())],
+        void: [camera_exclusion(), board_exclusion()],
+        material: unknown, load_cases: [], objective: minimize_mass,
+        constraints: [], manufacturing: []);
+}
+
+part TorsoSupport {
+    material: lib_jetson_DisplayOnly;
+    body = topology(name: "torso_support",
+        domain: translate([-SHOULDER_SPACING / 2 - 10 mm, -30 mm, TORSO_BASE_Z - 8 mm],
+            box([SHOULDER_SPACING + 20 mm, 60 mm, 106 mm])),
+        preserve: [interface(name: "board_mount", shape: board_contacts()),
+            interface(name: "left_shoulder_housing", shape: pitch_contacts(SHOULDER_SPACING / 2, SHOULDER_Z, 90 deg)),
+            interface(name: "right_shoulder_housing", shape: pitch_contacts(-SHOULDER_SPACING / 2, SHOULDER_Z, -90 deg))],
+        void: [board_exclusion(),
+            pitch_exclusion(SHOULDER_SPACING / 2, SHOULDER_Z, 90 deg),
+            pitch_exclusion(-SHOULDER_SPACING / 2, SHOULDER_Z, -90 deg)],
+        material: unknown, load_cases: [], objective: minimize_mass,
+        constraints: [], manufacturing: []);
+}
+
+part PelvisSupport {
+    material: lib_battery_DisplayOnly;
+    body = topology(name: "pelvis_support",
+        domain: translate([-LEG_SPACING / 2 - 14 mm, -30 mm, HIP_ROLL_Z - 12 mm],
+            box([LEG_SPACING + 28 mm, BATTERY_REAR_OFFSET + 44 mm, TORSO_BASE_Z - HIP_ROLL_Z + 24 mm])),
+        preserve: [interface(name: "left_hip_housing", shape: roll_contacts(LEG_SPACING / 2, HIP_ROLL_Z)),
+            interface(name: "right_hip_housing", shape: roll_contacts(-LEG_SPACING / 2, HIP_ROLL_Z))],
+        void: [roll_exclusion(LEG_SPACING / 2, HIP_ROLL_Z),
+            roll_exclusion(-LEG_SPACING / 2, HIP_ROLL_Z),
+            board_exclusion(), translate([-34 mm, BATTERY_REAR_OFFSET, BATTERY_Z],
+                rotate(0 deg, 90 deg, 0 deg, li_ion_battery()))],
+        material: unknown, load_cases: [], objective: minimize_mass,
+        constraints: [], manufacturing: []);
+}
+
+part LeftThighSupport {
+    material: lib_servo_ServoPlastic;
+    body = limb_preparation(LEG_SPACING / 2, KNEE_Z, HIP_PITCH_Z, 90 deg);
+}
+part RightThighSupport {
+    material: lib_servo_ServoPlastic;
+    body = limb_preparation(-LEG_SPACING / 2, KNEE_Z, HIP_PITCH_Z, -90 deg);
+}
+part LeftShinSupport {
+    material: PLA_Estimated;
+    body = estimated_left_shin(LEG_SPACING / 2, ANKLE_PITCH_Z, KNEE_Z);
+}
+part RightShinSupport {
+    material: lib_servo_ServoPlastic;
+    body = limb_preparation(-LEG_SPACING / 2, ANKLE_PITCH_Z, KNEE_Z, -90 deg);
+}
+part LeftFootSupport {
+    material: lib_servo_ServoPlastic;
+    body = foot_preparation(LEG_SPACING / 2);
+}
+part RightFootSupport {
+    material: lib_servo_ServoPlastic;
+    body = foot_preparation(-LEG_SPACING / 2);
+}
+part LeftArmSupport {
+    material: lib_servo_ServoPlastic;
+    body = limb_preparation(SHOULDER_SPACING / 2, ELBOW_Z, SHOULDER_Z, 90 deg);
+}
+part RightArmSupport {
+    material: lib_servo_ServoPlastic;
+    body = limb_preparation(-SHOULDER_SPACING / 2, ELBOW_Z, SHOULDER_Z, -90 deg);
 }

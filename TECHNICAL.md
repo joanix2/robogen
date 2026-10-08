@@ -1,5 +1,183 @@
 # RoboGen technical notes
 
+## Native CUDA Mass Solver (2026-10-08, Iteration 16)
+
+Optimisation now has an explicit CPU / GPU CUDA choice for minimum mass, CPU by
+default. ComputeBackend travels in ExecutionSettings and each JSON event; Rust
+rejects backend mismatches and retains the actual backend in MassDiagnostic.
+The historical stiffness path refuses CUDA rather than silently running on CPU.
+Julia loads the optional adapter only for CUDA requests. CPU code is retained.
+
+CUDA 6.0.0 / Krylov 0.8.4 implement sparse preconditioned CG in Float64, forward
+and adjoint, with validated true residual/backward error and bounded refinement.
+CUDA 6.4.2/GPUCompiler 2.13 did not compile on Julia 1.10.10. The working versions
+are pinned; see ADR-008 and backends/topopt-jl/README.md for the explicit roundoff
+criterion and reproducible benchmark. No GPU types cross the Rust boundary.
+
+Actual left-shin grid 24192 cells/80475 DOFs, unchanged PLA/loads/filter, two full
+iterations: CPU 300.27 s, CUDA 105.18 s (~2.85x, warm session). Both produce
+56.134595 g, displacement 1.887961/1.243991 mm >0.5 mm: not converged/feasible,
+never publishable. The GPU speeds the linear solve; assembly and sensitivity
+contraction remain CPU. Startup and very small grids may still be slower.
+
+CUDA tests cover solutions/refusals/scaling, forward/adjoint finite differences,
+independent cases, masks, filtered mass, actual biped equivalence and native UI
+without export. No mechanical tolerance, grid or physical input was weakened.
+
+Workspace fmt/Clippy/all-targets -D warnings/tests and desktop/CLI builds pass.
+Native 1440x831 inspection confirms LeftShinSupport selected with GPU CUDA and
+2.5 mm grid: docs/screenshots/biped-cuda-native.png. The new window is prepared
+for an explicit run, not showing the offline benchmark as a persisted result.
+
+## Estimated PLA Shin Inputs (2026-10-08, Iteration 15)
+
+The user explicitly authorized estimated inputs pending real measurements.
+Only LeftShinSupport now uses `left_shin_PLA_estimated` in the actual mini_biped
+DSL. PLA_Estimated: 1240 kg/m3, E=2 GPa, nu=0.35, nominal strength 25 MPa.
+The strength is metadata, not an enforced constraint. Forces are [10,0,-40] N
+and [0,10,-40] N in separate cases, with a 0.5 mm nodal displacement limit.
+The vertical load assumes 2 kg, one-leg support and a factor of two, rounded up.
+No walking, stress, buckling, fatigue or FDM qualification is inferred.
+
+Two distal offset pads are clamped; a proximal offset cylinder receives loads.
+Both explicitly named estimated rigid-transfer interfaces substitute idealized
+load transfer for unmeasured fastener/horn mechanics. Purchased servo geometry
+and keepouts remain unchanged. Exact contact rings are not used as FEM supports
+for this model: the conservative uniform projector cannot preserve their cells
+while also excluding intersecting hole/housing cells. No projector rule is relaxed.
+
+The projection test checks 28x24x36 cells at 2.5 mm, PLA properties, two independent
+force resultants, nonempty interfaces and preserve/design/void regions. The project
+integration test keeps ten incomplete preparations, seventeen purchased meshes
+and no automatic optimized result. Detailed editable assumptions are documented
+in examples/mini_biped/README.md. These inputs permit exploration only; source
+completeness must never be presented as a validated or printable tibia.
+
+Verification: workspace Clippy/all-targets -D warnings and tests, desktop/CLI
+builds pass. Runtime-dependent ignored Julia tests were not rerun for this
+input-only change; no optimization was launched. Native inspection shows the
+estimated PLA/cases/supports on LeftShinSupport without missing-input warnings:
+docs/screenshots/biped-left-shin-pla-estimated-native.png (1440x831).
+
+## Physical Grid Resolution (2026-10-08, Iteration 14)
+
+The mass workflow now defaults to a 2.5 mm target cell size in native Optimisation,
+with an alternative explicit XYZ mode. Counts use ceil(domain extent / target),
+and actual per-axis sizes, cell count and DOFs are shown before launch. Invalid
+resource requests disable launch; no silent coarsening occurs. The regularization
+filter retains its physical radius when the grid changes.
+
+The common projector no longer constructs the historical FEM GridModel just to
+enumerate nodes. Mass projection/Julia accept up to 32768 cells, 256 per axis,
+150000 DOFs and 65536 cell-cases. The historical solver remains at 2048 cells and
+64 per axis. These are resource bounds, not qualified accuracy guarantees or an
+OS-level memory sandbox. Fine grids can use several GiB; small fixations may need
+a locally refined/conforming mesh beyond this regular-grid budget.
+
+Measured internal control: 120x40x20 mm, grid 48x16x8 (6144 Hex8 cells) instead of
+12x4x2 (96). Two real Julia iterations took 78.6 s including startup, with peak
+RSS 3269848 KiB (~3.12 GiB). Reference density mass remained 259.2 g; the 72.008 g
+candidate was NOT converged. This is neither a mesh-independence study nor a
+biped result. Forces, masks and per-case responses remain checked.
+
+Diagnostic rendering now omits internal faces and shares grid vertices, without
+smoothing or changing the density field. A full 48x16x8 grid needs 5120 boundary
+triangles rather than 73728 cube triangles. Export remains disabled for diagnostics.
+
+GPU permission was granted. nvidia-smi confirms an RTX 3060 with 12 GiB VRAM.
+TopOpt 0.14.0's active DirectSolver is CPU sparse Cholesky/QR; its old CuVector
+assembly code is commented out and CUDA is not an active dependency. No GPU
+compute acceleration is claimed. A GPU adapter must pass numerical/gradient
+contracts and measured timing comparisons before being enabled.
+
+Validation: refined-grid execution test (explicitly run with --ignored), new
+projection/UI/boundary-mesh tests, existing native Julia/UI test, workspace tests,
+Clippy -D warnings, fmt and desktop/CLI builds pass. The native 1440x831 capture
+is docs/screenshots/topology-grid-resolution-native.png. Existing biped input and
+mechanical qualification blockers are unchanged.
+
+## Native Minimum-Mass Diagnostics (2026-10-08, Iteration 13)
+
+The native Optimisation workspace now runs a selected, complete minimize_mass
+declaration through Project's existing background worker and a local Julia
+process. The projector preserves the source geometry, material and independent
+nodal loads/supports. It does not substitute the historical OC objective.
+The external adapter currently accepts max_displacement only, with explicit
+refusal of other constraints/manufacturing. Incomplete biped declarations still
+return E347 and cannot launch; no hardware properties are filled by guesswork.
+
+`robogen-topopt::mass::MassDiagnostic` carries operation/source/revision, grid,
+regions, reference/current densities, density mass, per-case displacement limits,
+history and final convergence status. ProjectSnapshot.mass_diagnostics and the
+Diagnostic state are separate from validated topology reports and export meshes.
+The existing native renderer displays the selected diagnostic, with a visual
+threshold and reference toggle. The curve reports mass evaluations, not a certified
+final-solid mass. Changes invalidate diagnostics; failed/cancelled jobs retain
+the last accepted field but cannot publish geometry. Booleans downstream of
+topology remain unsupported, including in diagnostic geometry composition.
+
+`native.jl` owns Ferrite/TopOpt types; the Rust port owns a versioned JSON protocol,
+local temp input, one-MiB events, bounded queue, 30-minute timeout and child cleanup.
+The worker keeps only the latest diagnostic update and rejects stale revisions.
+`serde_json` and `tempfile` are adapter dependencies. Setup remains explicit and
+developer-local; see the backend README for pinned runtime installation/tests.
+No browser server, WebView, Python application or second rendering stack is used.
+
+The three runtime-dependent tests passed separately (TopOpt transport, Project
+worker and UI rendering/export guards). Standard workspace tests skip these when
+Julia is not installed. Full Rust tests, Clippy and desktop/CLI build pass.
+This does not resolve the external qualification failures or create a computed
+LeftShinSupport; exact transmission interfaces, physical data and binary
+reanalysis remain mandatory before publication. The earlier iteration notes below
+describe historical states.
+
+## External Minimum-Mass Qualification (2026-10-08, Iteration 11)
+
+TopOpt.jl 0.14.0 is installed with Julia 1.10.10 in ignored target/topopt-tools.
+The experimental kernel, dependency lock, source-checked compatibility fixes and
+reproduction commands live in
+[the backend qualification directory](crates/robogen-topopt/backends/topopt-jl/README.md).
+No Rust dependency, product dispatch, source schema or desktop behavior changed.
+The homogeneous-mass/compliance smoke test passes seven assertions. Direct nodal
+displacement with filtered masks and two independent force cases passes thirteen
+assertions but fails three feasibility/convergence assertions at 500 iterations.
+This is an intentionally visible failing qualification, not a production backend.
+Do not publish the candidate or relax tolerances. Gradient/refinement checks,
+stress/manufacturing, isolated process supervision and binary reanalysis remain.
+
+Hardware research is recorded in examples/mini_biped/README.md. Servo identity,
+horn attachment and printed PLA properties are not established by the candidate
+manufacturer pages. LeftShinSupport remains incomplete, E347 remains appropriate.
+Rust fmt, Clippy all-targets with denied warnings and workspace tests passed.
+
+## Biped Support Preparation (2026-10-08, Iteration 10)
+
+The mini_biped source now retains its 17 purchased components and adds eleven
+separate topology preparations for camera, torso, pelvis and paired limbs/feet.
+Their domain dimensions are design proposals, not optimized geometry. Contact
+rings use the existing housing/board hole coordinates; horn transmission
+interfaces, swept volumes and physical loading are still unresolved. Camera
+mounting on the board is a design proposal, not a validated PCB load path.
+
+TopologySpec schema 2 uses Option<MaterialId>. Explicit `material: unknown`
+allows empty preserve/load/constraint lists for incomplete preparation; ordinary
+known-material declarations retain their checks. Recompile derived IR from .rgn.
+`preparation_issues()` is shared by the execution boundaries. Project, CLI and
+TopOpt reject incomplete requests with E347 before any solve, including attempts
+to supply the Part/display material as a fallback. The UI reports missing data
+and disables launch, while retaining components and region previews. Existing
+export guards exclude preparations; the global biped export is unavailable.
+
+This is the real biped scene, not a standalone numerical fixture. It has no
+computed support, no inferred walking load and no new minimize_mass capability.
+Fixtures remain internal regression checks. Domain overlap and complete movement,
+cable/tool keepouts must be resolved before mechanical acceptance.
+
+Validation: focused IR/Project/UI/TopOpt tests, full workspace tests, fmt check,
+Clippy all-targets with warnings denied and desktop/CLI builds passed. Native
+1080x680 biped preparation captured; synthetic menu/tab clicks were inconclusive,
+so manual Optimisation navigation is not claimed. See screenshots/README.md.
+
 ## Source-of-truth flow
 
 The `.rgn` source is parsed into a spanned syntax model, resolved and checked
@@ -597,3 +775,101 @@ Iteration 7 gates: 139 tests workspace, fmt --check and Clippy workspace
 all-targets -D warnings pass. A common-translation regression also verifies
 unchanged cell masks after normalizing geometry into the local grid frame.
 No desktop integration or native UI validation is claimed for this CLI slice.
+
+## Topology Document Publication (iteration 8)
+
+Project now executes supported topology and converts accepted binary results
+into CAD Mesh, restoring the grid origin. ResolvedTopologyKernel composes outer
+rigid transforms, colors and compounds with ordinary geometry. Missing results,
+malformed meshes and downstream Booleans fail explicitly. No solver types enter
+CAD and no generated source is substituted.
+
+ProjectSnapshot atomically includes TopologyReport with source span/material,
+worker-scoped revision (0 synchronously), grid origin, settings, backend,
+iteration count, mass/volume and each binary case's compliance, displacement
+and residual. Rebuild recalculates topology; no persistent result cache exists.
+The worker rejects stale revisions and supports cancellation; faer factorization
+remains non-interruptible. Progress counts topology nodes and CAD parts, not time
+remaining. Previous meshes/reports survive invalid edits, with export disabled.
+
+Document builds use the fixture preset [12,4,2] cells, 12 mm filter, 0.65 threshold
+and 100 iterations. These settings are visible in Optimisation, not automatically
+tuned or sufficient evidence for tiny servo interfaces. Configurable numerical
+controls remain CLI/API-only. E330 wraps the localized backend failure rather
+than reporting all topology unavailable. Minimize-mass, stress/safety/frequency
+and manufacturing remain unsupported. Publication is not certification.
+
+Native entry: Exemples > TopOpt calculable (charges manuelles), or start desktop
+with examples/topology_manual/main.rgn and select Optimisation. Tests cover
+composition, invalid mesh data, actual published measurements, load scaling,
+failed-limit atomicity, cancellation, asynchronous history and export guards.
+
+Mini-biped hardware boundary: servo DSL provides casing/tabs, diameter-2 mm cuts
+at (5.9,-2.4) and (5.9,24.9) mm, and a diameter-4.6 x 3.2 mm shaft. It contains
+no output horn, spline profile or retention screw. User requested exact interfaces,
+not provisional ones; articulated supports are not generated from assumed horns.
+Robot loads and calibrated materials remain separate requirements. The existing
+17-component layout is unchanged.
+
+Iteration 8 verification: 144 workspace tests, fmt/Clippy -D warnings, desktop
+build and editor diagnostics passed. Native results inspected at 1080x831 and
+1080x680; capture in docs/screenshots/topology-publication-native.png. Hardware
+interfaces remain incomplete, so the biped-support acceptance stays open.
+
+## Preparation And Explicit Per-Part Optimization (iteration 9)
+
+This supersedes iteration 8's automatic execution. Project::from_source and
+rebuild only compile and tessellate declarative regions. CAD topology_preview
+retains enclosing rigid transforms and projects three separate layers without
+requiring solver capabilities. ProjectSnapshot.preparation is keyed by PartId;
+these meshes never enter the exportable meshes table. Semantic validation still
+applies: the existing DSL declaration syntax has not become a draft schema.
+
+SourceDocument::start_optimization(PartId, ExecutionSettings) sends an explicit
+job to the existing bounded worker. Only that part's operations run. Other
+computed meshes/reports remain intact. Settings are editable per part in the
+native control panel; reports retain the settings used, not the next-run edits.
+Loads/material/interfaces/constraints stay source-owned and editable through
+the undoable DSL editor. The worker serializes jobs; concurrent launches are
+rejected, not silently enqueued. Cancellation remains cooperative.
+
+Each part has NotCalculated/Running/Calculated/Obsolete/Failed/Cancelled state.
+Calculation diagnostics are distinct from compilation diagnostics: an unsupported
+objective does not invalidate geometric preparation. Every source edit currently
+invalidates all TopOpt results conservatively, including undo/redo, without
+automatic recomputation. Job revisions prevent stale publication. Numerical
+settings are transient next-run controls, not persisted source changes.
+
+Conception shows domain/preserve/keepout contours (blue/green/red), components
+and computed results with independent visibility. Optimisation shows selected
+part regions and per-part calculation controls/reports. Regions share one scene
+frame; hiding them does not recenter the camera. Whole-document export requires
+all topology parts calculated. Optimization export contains only the selected
+calculated part, independently of visibility or other pending parts. CLI check
+accepts preparation; export-stl refuses unresolved parts; optimize-topology stays
+an explicit node-local execution/export command.
+
+No new solver capability, mechanical interface, stress field, smoothed surface
+or robot support is inferred from the reference mock-ups. The current region
+display uses mesh contours, not transparent shaded volumes or face picking.
+
+Iteration 9 verification: 149 workspace tests, fmt, Clippy all-targets -D warnings,
+desktop build and editor diagnostics passed. Native preparation/selection/result
+captures and XTest launch/masking checks are documented in docs/screenshots/README.md.
+
+## External Topology Backend Direction (2026-10-08)
+
+ADR-008 now records the requested shift from further in-house FEM/SIMP development
+to an existing-library adapter. Scikit-Topt is the first prototype candidate,
+not an installed or validated backend. The current Rust execution path remains
+active until replacement contracts pass. TopologySpec/TopologyRequest already
+separate DSL semantics from execution; the next boundary is a versioned numerical
+problem/result protocol for a local isolated Python process. The existing
+TopologyOptimizer trait is still a skeleton, not the production dispatcher.
+
+Preserve iteration 9's preparation-only compilation and explicit per-part jobs.
+The prototype must verify independent load cases/supports, preserve/void handling
+through filters, units/index ordering, cancellation and post-reconstruction
+reanalysis. Minimum compliance at a volume budget is not minimum mass under
+strength limits. Capabilities remain explicit and unsupported constraints fail.
+See ADR-008 for primary sources, package-version caveat and migration gates.

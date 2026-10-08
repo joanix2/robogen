@@ -1,5 +1,13 @@
 # Screenshots
 
+CUDA minimum-mass integration, 2026-10-08:
+
+- [Biped CUDA, 1440x831](biped-cuda-native.png): native X11 client,
+  LeftShinSupport selected, GPU CUDA active for the next run, target 2.5 mm
+  and 24192 cells. Inspected without resizing/compositing. This capture shows
+  the actual control and preparation, not an optimized or printable tibia.
+  CPU/CUDA timing and numerical comparisons are in the backend README.
+
 Release and milestone screenshots belong here. `docs/maquettes.jpeg` is the
 original product direction reference and is not a claim of implemented solver
 output.
@@ -111,3 +119,43 @@ M7 standalone reconstruction, 2026-10-08:
 	reimport. Neither the X=0 support nor the X=120 loaded face is preserved.
 	This figure demonstrates a visualization artifact, not a usable mechanical
 	support, native UI integration or post-reconstruction strength validation.
+
+Topology document publication, 2026-10-08:
+
+- [Computed topology, 1080x680](topology-publication-native.png): actual X11
+	client at the native minimum size, after removing WM maximization. The manual
+	DSL fixture is computed by the worker; Optimisation shows revision/settings,
+	22 iterations, 216 g and both reanalysed cases alongside its 336-triangle mesh.
+	Inspected at 1080x831 and 1080x680; no compositing or image rescaling. The audit
+	window was selected by process ID because a separate biped window was open.
+	This is a manual-load fixture, not a generated biped support or manufacturing
+	certification. Automated tests cover undo/redo, cancellation and export guards.
+
+Preparation and explicit per-part calculation, 2026-10-08 (supersedes automatic
+publication in the previous capture):
+
+- [Conception preparation, 1080x680](topology-preparation-native.png): battery
+	fixture domain/preserve/keepout contours; no computed mesh and export disabled.
+- [Selection, 1080x680](topology-selection-native.png): Optimisation remains
+	non-calculated after tab selection. Exclusion hidden by an actual XTest click;
+	red viewport pixels decrease from 8040 to 44 (remaining coordinate axes).
+- [Explicit result, 1080x680](topology-explicit-result-native.png): manual fixture
+	after clicking Lancer cette piece; calculated status, mesh and real metrics.
+
+Native 1440x831 and compact layouts inspected. The WM ignored ordinary resizing;
+override-redirect was temporarily enabled only on the audit client to obtain
+1080x680, not to resize an image. A battery calculation also verified a localized
+unsupported-capability failure without losing preparation. The manual fixture
+was observed non-calculated before launch. Two-part independence, cancellation,
+history and export guards are covered by automated tests, not claimed as a full
+manual two-part walkthrough. These images do not show generated robot supports.
+
+Biped support preparation, 2026-10-08 (iteration 10):
+
+- [Biped regions, 1080x680](biped-support-regions-native.png): actual X11 client,
+  17 purchased components and 11 incomplete support preparations. Blue domains,
+  green contact regions and red exclusions; no computed support or mass result.
+  Dense exclusion contours can obscure component surfaces when all are visible.
+  The client was identified by PID, captured without image rescaling/compositing
+  and left open. XTest menu/tab clicks produced no visible navigation; automated
+  UI tests, not this capture, verify selection, undo/redo and export/launch guards.

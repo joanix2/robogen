@@ -7,6 +7,9 @@ fn biped_source_to_closed_colored_shells_and_millimetre_stl() -> Result<(), Stri
         "../../../examples/mini_biped/main.rgn"
     ))
     .map_err(|errors| format!("{errors:?}"))?;
+    assert_eq!(project.snapshot().meshes.len(), 17);
+    assert_eq!(project.snapshot().preparation.len(), 11);
+    assert!(project.snapshot().topology.is_empty());
     let mut assembly = Mesh::default();
     for mesh in project.snapshot().meshes.values() {
         let mut edges = BTreeMap::<(u32, u32), (usize, i32)>::new();

@@ -1,7 +1,8 @@
 # Declarative battery support
 
 This example declares a deferred `topology(...)` solid. It does **not** contain
-an optimized support, a FEM run or a printable part. M7/M8 remain unavailable.
+an optimized support, a FEM run or a printable part. Its minimize-mass, stress,
+safety/frequency and FDM requirements are not yet supported by the CPU backend.
 
 The nominal purchased battery is 18 x 68 mm. `CLEARANCE` is a radial 0.4 mm
 allowance around it; the excluded cylinder also leaves axial room. The design
@@ -23,14 +24,17 @@ cargo run -p robogen-cli -- inspect-topology examples/topology_battery_support/m
 
 This succeeds with a semantic-only report: one operation, two preserved
 regions, one exclusion, one load case, six constraints, one FDM declaration,
-and an explicit unavailable solver. `check` and `export-stl` instead fail
-with E330 at the topology call. No domain mesh is substituted for the result.
+without running a solver. `check` now succeeds with separate preparation meshes;
+`export-stl` fails with E330 until explicit optimization. No domain mesh is
+substituted for a result.
 
 In the desktop choose **Exemples > Support batterie (contraintes TopOpt)**.
-The loader selects the DSL view. Editing and undo/redo use existing source
-history; pending or failed compilation disables export. A previously valid
-preview can remain visible with the application's stale-result indication.
-It is not the generated support.
+The loader selects the 3D preparation view: domain in blue, preserve in green,
+keepout in red, each switchable. Optimisation provides part selection and explicit
+calculation. Launching this unsupported request reports E330 for that part, while
+the preparation remains valid and visible. Editing and undo/redo use existing
+source history and never launch a solver. These volumes cannot be exported as
+an optimized support.
 
 ## Parameters and composition
 

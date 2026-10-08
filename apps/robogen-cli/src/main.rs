@@ -39,7 +39,7 @@ fn run(args: Vec<String>) -> Result<String, String> {
         })?;
         let operations = model.topology_operations();
         let mut lines = vec![format!(
-            "{} topology operation(s); semantic validation only; document meshing unavailable; no geometry generated",
+            "{} topology operation(s); semantic validation only; preparation is not a computed result; no geometry generated",
             operations.len()
         )];
         for specification in operations {
@@ -64,11 +64,15 @@ fn run(args: Vec<String>) -> Result<String, String> {
 
     match command.as_str() {
         "check" if rest.is_empty() => Ok(format!(
-            "valid RoboGen document: {} vertices, {} triangles",
+            "valid RoboGen document: {} vertices, {} triangles; {} topology part(s) prepared, no implicit optimization",
             mesh.vertices.len(),
-            mesh.triangles.len()
+            mesh.triangles.len(),
+            project.snapshot().preparation.len()
         )),
         "export-stl" => {
+            if !project.snapshot().preparation.is_empty() {
+                return Err("E330: topology parts require explicit optimization before export; use optimize-topology".into());
+            }
             let [output] = rest else {
                 return Err("export-stl requires an output path".into());
             };
@@ -95,6 +99,7 @@ fn optimize_declared(source: &str, args: &[String]) -> Result<String, String> {
     });
     let [nx, ny, nz] = cells;
     let settings = ExecutionSettings {
+        compute_backend: robogen_topopt::execution::ComputeBackend::Cpu,
         cells: [nx?, ny?, nz?],
         filter_radius: robogen_domain::Length::from_millimetres(
             filter_mm
@@ -124,10 +129,19 @@ fn optimize_declared(source: &str, args: &[String]) -> Result<String, String> {
     let [spec] = matches.as_slice() else {
         return Err("Select one topology operation by unique name or ID".into());
     };
+    let issues = spec.preparation_issues();
+    if !issues.is_empty() {
+        return Err(format!(
+            "E347: Incomplete topology preparation: {} at {}..{}",
+            issues.join("; "),
+            spec.span.start,
+            spec.span.end
+        ));
+    }
     let material = model
         .materials
         .values()
-        .find(|m| m.id == spec.material)
+        .find(|m| Some(m.id) == spec.material)
         .ok_or("Missing topology material")?;
     let result = execute_topology(
         &TopologyRequest {
@@ -234,22 +248,24 @@ mod tests {
     }
 
     #[test]
-    fn topology_inspection_does_not_authorize_check_or_export() -> Result<(), String> {
+    fn topology_preparation_checks_but_cannot_export() -> Result<(), String> {
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../examples/topology_battery_support/main.rgn")
             .to_string_lossy()
             .into_owned();
         let report = run(vec!["inspect-topology".into(), source.clone()])?;
         assert!(report.contains("1 topology operation(s)"));
-        assert!(report.contains("document meshing unavailable"));
+        assert!(report.contains("preparation is not a computed result"));
         assert!(report.contains("preserved=2"));
-        for command in ["check", "export-stl"] {
-            let mut args = vec![command.to_owned(), source.clone()];
-            if command == "export-stl" {
-                args.push("unavailable-topology.stl".into());
-            }
-            assert!(run(args).is_err_and(|message| message.contains("E330")));
-        }
+        assert!(run(vec!["check".into(), source.clone()])?.contains("1 topology part(s) prepared"));
+        assert!(
+            run(vec![
+                "export-stl".into(),
+                source,
+                "unavailable-topology.stl".into()
+            ])
+            .is_err_and(|message| message.contains("E330"))
+        );
         Ok(())
     }
 }

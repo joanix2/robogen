@@ -102,6 +102,124 @@ pub trait CadKernel: Send + Sync {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NativeCadKernel;
 
+pub struct ResolvedTopologyKernel<'a> {
+    pub meshes: &'a BTreeMap<robogen_domain::OptimizationId, Mesh>,
+}
+
+pub fn topology_preview(
+    geometry: &SolidGeometry,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<[Mesh; 3], CadError> {
+    let mut layers: [Mesh; 3] = std::array::from_fn(|_| Mesh::default());
+    let mut pending = vec![(geometry, Vec::<&SolidGeometry>::new(), 0usize)];
+    let mut visited = 0;
+    while let Some((node, transforms, depth)) = pending.pop() {
+        if cancelled() {
+            return Err(CadError::Cancelled);
+        }
+        visited += 1;
+        if depth > 32 || visited > 4096 {
+            return Err(CadError::InvalidSolid {
+                span: node.span,
+                reason: "topology preview traversal limit".into(),
+            });
+        }
+        match &node.operation {
+            robogen_ir::SolidOperation::Topology { specification } => {
+                let regions = [
+                    vec![&specification.domain],
+                    specification
+                        .preserve
+                        .iter()
+                        .map(|region| &region.geometry)
+                        .collect(),
+                    specification.voids.iter().collect(),
+                ];
+                for (layer, regions) in layers.iter_mut().zip(regions) {
+                    for region in regions {
+                        let mut placed = region.clone();
+                        for transform in transforms.iter().rev() {
+                            placed = SolidGeometry {
+                                span: transform.span,
+                                operation: match &transform.operation {
+                                    robogen_ir::SolidOperation::Translate { offset, .. } => {
+                                        robogen_ir::SolidOperation::Translate {
+                                            offset: *offset,
+                                            shape: Box::new(placed),
+                                        }
+                                    }
+                                    robogen_ir::SolidOperation::Rotate { angles, .. } => {
+                                        robogen_ir::SolidOperation::Rotate {
+                                            angles: *angles,
+                                            shape: Box::new(placed),
+                                        }
+                                    }
+                                    _ => unreachable!(),
+                                },
+                            };
+                        }
+                        let mesh = NativeCadKernel.solid_cancellable(&placed, cancelled)?;
+                        if layer.vertices.len() + mesh.vertices.len() > 262_144
+                            || layer.triangles.len() + mesh.triangles.len() > 524_288
+                        {
+                            return Err(CadError::InvalidSolid {
+                                span: node.span,
+                                reason: "topology preview mesh limit".into(),
+                            });
+                        }
+                        layer.append(&mesh);
+                    }
+                }
+            }
+            robogen_ir::SolidOperation::Translate { shape, .. }
+            | robogen_ir::SolidOperation::Rotate { shape, .. } => {
+                let mut transforms = transforms;
+                transforms.push(node);
+                pending.push((shape, transforms, depth + 1));
+            }
+            robogen_ir::SolidOperation::Color { shape, .. } => {
+                pending.push((shape, transforms, depth + 1))
+            }
+            robogen_ir::SolidOperation::Compound { shapes }
+            | robogen_ir::SolidOperation::Union { shapes } => {
+                pending.extend(
+                    shapes
+                        .iter()
+                        .map(|shape| (shape, transforms.clone(), depth + 1)),
+                );
+            }
+            robogen_ir::SolidOperation::Difference { base, tools } => {
+                pending.push((base, transforms.clone(), depth + 1));
+                pending.extend(
+                    tools
+                        .iter()
+                        .map(|shape| (shape, transforms.clone(), depth + 1)),
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok(layers)
+}
+
+impl CadKernel for ResolvedTopologyKernel<'_> {
+    fn extrude(&self, sketch: &Sketch, depth: Length) -> Result<Mesh, CadError> {
+        NativeCadKernel.extrude(sketch, depth)
+    }
+
+    fn solid(&self, geometry: &SolidGeometry) -> Result<Mesh, CadError> {
+        self.solid_cancellable(geometry, &|| false)
+    }
+
+    fn solid_cancellable(
+        &self,
+        geometry: &SolidGeometry,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Mesh, CadError> {
+        mesh_csg::build_resolved(geometry, cancelled, self.meshes)
+    }
+}
+
 impl CadKernel for NativeCadKernel {
     fn solid_cancellable(
         &self,

@@ -41,13 +41,19 @@ fn topology_contract_preserves_types_ids_and_composition() -> Result<(), &'stati
         let operations = output.model.topology_operations();
         assert_eq!(operations.len(), 1);
         let spec = operations[0];
-        assert_eq!(spec.schema_version, 1);
+        assert_eq!(
+            spec.schema_version,
+            robogen_ir::topology::TOPOLOGY_SCHEMA_VERSION
+        );
         let Feature::Solid { id, .. } = &output.model.parts["BatterySupport"].features[0] else {
             return Err("expected solid");
         };
         assert_eq!(spec.feature, *id);
         assert!(source[spec.span.start..spec.span.end].starts_with("topology("));
-        assert_eq!(spec.material, output.model.materials["IllustrativePLA"].id);
+        assert_eq!(
+            spec.material,
+            Some(output.model.materials["IllustrativePLA"].id)
+        );
         let seat = spec.preserve[1]
             .interface
             .as_ref()
@@ -150,6 +156,26 @@ fn topology_rejects_invalid_or_unsupported_declarations() {
             .diagnostics
             .iter()
             .all(|diagnostic| diagnostic.span.end > diagnostic.span.start));
+    }
+}
+
+#[test]
+fn topology_preparation_keeps_missing_physics_explicit() {
+    let declaration = "part Draft { material: M; body = topology(name: \"draft\", domain: box([10 mm, 20 mm, 30 mm]), preserve: [], void: [], material: unknown, load_cases: [], objective: minimize_mass, constraints: [], manufacturing: []); }";
+    let output = compile(declaration);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let operations = output.model.topology_operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].material, None);
+    assert_eq!(operations[0].preparation_issues().len(), 4);
+    assert_eq!(
+        operations[0].objective,
+        robogen_ir::topology::Objective::MinimizeMass
+    );
+    for material in ["M", "typo"] {
+        let invalid =
+            compile(&declaration.replace("material: unknown", &format!("material: {material}")));
+        assert!(!invalid.diagnostics.is_empty());
     }
 }
 

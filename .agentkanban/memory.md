@@ -84,3 +84,53 @@
   .cargo-home/bin/rust-analyzer : la decouverte de l'extension utilise process.env
   avant server.extraEnv. Handshake LSP version 1.88.0/exit 0 verifie ; recharger
   la fenetre VS Code pour appliquer a la session ouverte. Compilateur inchange.
+
+- 2026-10-08 : ticket 15 iteration 8 raccorde TopOpt supporte au worker Project,
+  compose maillages sous transforms/couleurs/compound et publie rapports natifs.
+  Booleens aval et capacites absentes refuses. Prereglage document fixe [12,4,2],
+  filtre12mm/seuil.65/100iterations ; reglages differents CLI/API uniquement.
+  144 tests/fmt/Clippy/build/capture1080x680 passes. Utilisateur exige fixations
+  exactes et renvoie au DSL servo : il cote boitier/trous/arbre, pas le palonnier,
+  cannelures ou vis de retenue. Bipede toujours17composants sans supports generes.
+  Objectif global ouvert, changements non committes, aucune certification.
+
+- 2026-10-08 : iteration 9 remplace le calcul automatique par preparation seule
+  dans Conception et commande explicite par PartId dans Optimisation. Couches
+  domaine/preserve/keepout separees des meshes exportables ; reglages numeriques
+  par piece dans UI, charges/materiaux/interfaces via DSL. Worker serialise les
+  jobs, conserve les autres resultats, etats distincts et diagnostics par piece.
+  Tout changement DSL invalide conservativement tous les resultats sans recalcul.
+  Export selectionne en Optimisation ; export global requiert toutes les pieces
+  calculees. 149 tests/fmt/Clippy/build/native passes. Contours, pas volumes
+  transparents remplis. Pas de nouvelles interfaces/supports robot ni commit.
+
+- 2026-10-08 : priorite utilisateur du ticket 15 : minimiser la masse sous les
+  contraintes declarees, pas maximiser la rigidite a volume fixe. Choisir une
+  bibliotheque existante selon cette capacite ; Scikit-Topt n'est pas impose.
+  Premiere preuve attendue : minimize_mass, masse avant/apres et reanalyse de
+  toutes les contraintes sur le solide reconstruit. Aucun moteur ajoute ici.
+
+- 2026-10-08 : iteration 10 du ticket 15 prepare le bipede reel : 17 composants
+  inchanges + 11 supports TopOpt incomplets, trois couches, selection CameraSupport.
+  TopologySpec schema 2 : Option<MaterialId>, material: unknown, listes vides
+  explicites ; E347 avant solveur, aucun fallback DisplayOnly. Launch/export
+  bloques, historique teste. Fmt/Clippy/tests workspace/build passent ; capture
+  native 1080x680, clics XTest non concluants. Masse minimale/charges/materiaux/
+  palonniers et debattements encore ouverts, aucun support calcule ni commit.
+
+- 2026-10-08 : ticket 15 iteration 15, l'utilisateur autorise explicitement les
+  estimations pour le PLA. LeftShinSupport seul : PLA_Estimated (1240 kg/m3,
+  2 GPa, nu .35, resistance nominale 25 MPa non imposee), forces [10,0,-40] N
+  et [0,10,-40] N, fleche .5 mm. Zones de transfert rigide ideales deportees,
+  pas de fixations reelles validees ; servos/perçages/exclusions inchanges.
+  Projection 24192 cellules a 2.5 mm et resultantes testees ; gates Rust passent.
+  UI native actualisee, aucun calcul lance. Les dix autres supports restent
+  incomplets ; montage reel, qualification et export toujours non resolus.
+
+- 2026-10-08 : ticket 15 iteration 16 ajoute GPU CUDA explicite aux diagnostics
+  natifs minimum de masse (CPU par defaut). CUDA 6.0.0/Krylov 0.8.4, Float64 CG,
+  residu reel + erreur retrograde/plancher d'arrondi documentes ADR-008.
+  Tibia 24192 cellules, deux iterations : 300.27 s CPU /105.18 s CUDA (~2.85x),
+  equivalence masse/deplacements/gradients verifiee, candidat non converge.
+  Tests GPU/transport/UI et gates Rust passent ; aucun export mecanique valide.
+  Utilisateur demande commit checkpoint ; futur ticket RL exclu, pas de cloture.

@@ -27,7 +27,7 @@ fn request() -> Result<TopologyRequest, Box<dyn std::error::Error>> {
         .model
         .materials
         .values()
-        .find(|m| m.id == specification.material)
+        .find(|m| Some(m.id) == specification.material)
         .ok_or("no material")?
         .clone();
     Ok(TopologyRequest {
@@ -38,6 +38,7 @@ fn request() -> Result<TopologyRequest, Box<dyn std::error::Error>> {
 }
 fn settings() -> ExecutionSettings {
     ExecutionSettings {
+        compute_backend: robogen_topopt::execution::ComputeBackend::Cpu,
         cells: [12, 4, 2],
         filter_radius: Length::from_millimetres(12.0),
         threshold: 0.65,
@@ -49,6 +50,315 @@ fn geometry(operation: SolidOperation) -> SolidGeometry {
         operation,
         span: SourceSpan::new(101, 102),
     }
+}
+
+#[test]
+fn estimated_biped_shin_projects_pla_and_independent_loads()
+-> Result<(), Box<dyn std::error::Error>> {
+    let parsed = robogen_dsl::parse(include_str!("../../../examples/mini_biped/main.rgn"));
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let lowered = robogen_ir::lower(&parsed.module.ok_or("no module")?);
+    assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+    let specification = lowered
+        .model
+        .topology_operations()
+        .into_iter()
+        .find(|spec| spec.name == "left_shin_PLA_estimated")
+        .ok_or("no estimated tibia")?
+        .clone();
+    assert!(specification.preparation_issues().is_empty());
+    assert_eq!(specification.objective, Objective::MinimizeMass);
+    assert_eq!(specification.preserve.len(), 2);
+    assert_eq!(specification.voids.len(), 2);
+    assert_eq!(specification.load_cases.len(), 2);
+    assert!(
+        specification
+            .load_cases
+            .iter()
+            .all(|case| case.name.starts_with("estimated_"))
+    );
+    assert_eq!(
+        specification.constraints[0].kind,
+        ConstraintKind::MaxDisplacement(Length::from_millimetres(0.5))
+    );
+    let material = lowered
+        .model
+        .materials
+        .values()
+        .find(|material| Some(material.id) == specification.material)
+        .ok_or("no PLA")?
+        .clone();
+    assert_eq!(material.density.kg_per_m3(), 1240.0);
+    assert_eq!(material.young_modulus.pascals(), 2e9);
+    assert_eq!(material.poisson_ratio, 0.35);
+    let request = TopologyRequest {
+        specification,
+        material,
+        document_revision: 15,
+    };
+    let resolution = robogen_topopt::execution::resolution_for_cell_size(
+        &request.specification,
+        Length::from_millimetres(2.5),
+    )?;
+    assert_eq!(resolution.cells, [28, 24, 36]);
+    let settings = ExecutionSettings {
+        compute_backend: robogen_topopt::execution::ComputeBackend::Cpu,
+        cells: resolution.cells,
+        filter_radius: Length::from_millimetres(5.0),
+        threshold: 0.65,
+        max_iterations: 2,
+    };
+    let prepared = prepare_topology(&request, &settings, &|| false, &mut |_| {})?;
+    assert_eq!(prepared.grid.load_cases.len(), 2);
+    assert!(
+        prepared
+            .interfaces
+            .iter()
+            .all(|interface| interface.cell_count > 0 && interface.name.starts_with("estimated_"))
+    );
+    for (case, expected) in prepared
+        .grid
+        .load_cases
+        .iter()
+        .zip([[10.0, 0.0, -40.0], [0.0, 10.0, -40.0]])
+    {
+        assert!(!case.boundary.constraints.is_empty());
+        let mut total = [0.0; 3];
+        for force in &case.boundary.forces {
+            for (sum, value) in total.iter_mut().zip(force.force) {
+                *sum += value.newtons();
+            }
+        }
+        for (actual, expected) in total.into_iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-10);
+        }
+    }
+    assert!(prepared.grid.regions.contains(&CellRegion::Void));
+    assert!(prepared.grid.regions.contains(&CellRegion::Preserve));
+    assert!(prepared.grid.regions.contains(&CellRegion::Design));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires the pinned local Julia runtime; executes the real subprocess"]
+fn native_mass_process_returns_non_publishable_densities() -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut request = request()?;
+    request.specification.objective = Objective::MinimizeMass;
+    request.specification.constraints = vec![Constraint {
+        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.1)),
+        span: request.specification.span,
+    }];
+    let mut settings = settings();
+    settings.max_iterations = 2;
+    let mut events = Vec::new();
+    let result =
+        robogen_topopt::mass::diagnose_mass(&request, &settings, &|| false, &mut |event| {
+            events.push(event.clone())
+        })?;
+    assert!(result.finished);
+    assert!(!result.converged);
+    assert_eq!(result.id, request.specification.id);
+    assert_eq!(result.document_revision, 107);
+    assert_eq!(result.densities.len(), 96);
+    assert!(result.mass.kilograms() < result.reference_mass.kilograms());
+    assert!(!events.first().ok_or("missing reference")?.finished);
+    assert!(result.history.len() >= 2);
+    assert!(
+        events
+            .iter()
+            .any(|event| !event.finished && event.densities != event.reference_densities)
+    );
+    assert!(result.cases[0].1.metres() > 0.0);
+    assert!((result.cases[0].1.metres() - result.cases[1].1.metres()).abs() < 1e-12);
+    let Err(cancelled) =
+        robogen_topopt::mass::diagnose_mass(&request, &settings, &|| true, &mut |_| {})
+    else {
+        return Err("cancelled run launched".into());
+    };
+    assert_eq!(cancelled.diagnostic.code, "E345");
+    let started = std::time::Instant::now();
+    let Err(cancelled) = robogen_topopt::mass::diagnose_mass(
+        &request,
+        &settings,
+        &|| started.elapsed() > std::time::Duration::from_millis(200),
+        &mut |_| {},
+    ) else {
+        return Err("startup cancellation ignored".into());
+    };
+    assert_eq!(cancelled.diagnostic.code, "E345");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires the pinned Julia/CUDA runtime and an NVIDIA GPU"]
+fn native_mass_cuda_process_returns_non_publishable_densities()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut request = request()?;
+    request.specification.objective = Objective::MinimizeMass;
+    request.specification.constraints = vec![Constraint {
+        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.01)),
+        span: request.specification.span,
+    }];
+    let mut settings = settings();
+    settings.compute_backend = robogen_topopt::execution::ComputeBackend::Cuda;
+    settings.max_iterations = 2;
+    let result = robogen_topopt::mass::diagnose_mass(&request, &settings, &|| false, &mut |_| {})?;
+    assert_eq!(result.compute_backend, settings.compute_backend);
+    assert!(result.finished);
+    assert!(!result.converged);
+    assert_eq!(result.cells, settings.cells);
+    assert!(result.mass.kilograms() < result.reference_mass.kilograms());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires the pinned Julia runtime; measures an actually refined FEM grid"]
+fn native_mass_refined_grid_keeps_physics_and_resolves_smaller_cells()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut request = request()?;
+    request.specification.objective = Objective::MinimizeMass;
+    request.specification.constraints = vec![Constraint {
+        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.1)),
+        span: request.specification.span,
+    }];
+    let mut settings = settings();
+    settings.cells = [48, 16, 8];
+    settings.max_iterations = 2;
+    let started = std::time::Instant::now();
+    let result = robogen_topopt::mass::diagnose_mass(&request, &settings, &|| false, &mut |_| {})?;
+    assert_eq!(result.cells, [48, 16, 8]);
+    assert_eq!(result.densities.len(), 6144);
+    assert!(result.finished);
+    assert!((result.reference_mass.kilograms() - 0.2592).abs() < 1e-10);
+    assert!(result.mass.kilograms() < result.reference_mass.kilograms());
+    assert!((result.cases[0].1.metres() - result.cases[1].1.metres()).abs() < 1e-12);
+    println!(
+        "Refined FEM: {:?}, 2.5 mm cells, {:.3} g reference -> {:.3} g candidate, {:.1}s, converged={}",
+        result.cells,
+        result.reference_mass.kilograms() * 1000.0,
+        result.mass.kilograms() * 1000.0,
+        started.elapsed().as_secs_f64(),
+        result.converged
+    );
+    Ok(())
+}
+
+#[test]
+fn physical_cell_size_refines_mass_projection_without_relaxing_cpu_budget()
+-> Result<(), Box<dyn std::error::Error>> {
+    use robogen_topopt::execution::resolution_for_cell_size;
+    let mut request = request()?;
+    assert!(
+        resolution_for_cell_size(&request.specification, Length::from_millimetres(2.5)).is_err()
+    );
+    request.specification.objective = Objective::MinimizeMass;
+    request.specification.constraints = vec![Constraint {
+        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.1)),
+        span: request.specification.span,
+    }];
+    let resolution =
+        resolution_for_cell_size(&request.specification, Length::from_millimetres(2.5))?;
+    assert_eq!(resolution.cells, [48, 16, 8]);
+    assert_eq!(resolution.total_cells, 6144);
+    assert!(
+        resolution
+            .cell_size
+            .iter()
+            .all(|size| size.millimetres() <= 2.5 + 1e-12)
+    );
+    let mut settings = settings();
+    settings.cells = resolution.cells;
+    let prepared = prepare_topology(&request, &settings, &|| false, &mut |_| {})?;
+    assert_eq!(prepared.grid.regions.len(), 6144);
+    for (case, expected) in prepared.grid.load_cases.iter().zip([-1.0, 1.0]) {
+        let force: f64 = case
+            .boundary
+            .forces
+            .iter()
+            .map(|force| force.force[2].newtons())
+            .sum();
+        assert!((force - expected).abs() < 1e-10);
+    }
+    for size in [0.0, f64::NAN, 0.01] {
+        assert!(
+            resolution_for_cell_size(&request.specification, Length::from_millimetres(size))
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn mass_projection_keeps_geometry_and_loads_without_running_oc()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut request = request()?;
+    let reference = prepare_topology(&request, &settings(), &|| false, &mut |_| {})?;
+    request.specification.objective = Objective::MinimizeMass;
+    request.specification.constraints = vec![Constraint {
+        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.1)),
+        span: request.specification.span,
+    }];
+    let mass = prepare_topology(&request, &settings(), &|| false, &mut |_| {})?;
+    assert_eq!(mass.grid.regions, reference.grid.regions);
+    assert_eq!(mass.grid.load_cases.len(), reference.grid.load_cases.len());
+    for (actual, expected) in mass.grid.load_cases.iter().zip(&reference.grid.load_cases) {
+        assert_eq!(actual.id, expected.id);
+        assert_eq!(actual.span, expected.span);
+        assert_eq!(
+            actual.boundary.constraints.len(),
+            expected.boundary.constraints.len()
+        );
+        assert_eq!(actual.boundary.forces.len(), expected.boundary.forces.len());
+        for (actual, expected) in actual
+            .boundary
+            .constraints
+            .iter()
+            .zip(&expected.boundary.constraints)
+        {
+            assert_eq!(actual.node, expected.node);
+            assert_eq!(actual.fixed, expected.fixed);
+        }
+        for (actual, expected) in actual.boundary.forces.iter().zip(&expected.boundary.forces) {
+            assert_eq!(actual.node, expected.node);
+            assert_eq!(actual.force, expected.force);
+        }
+    }
+    assert_eq!(mass.origin, reference.origin);
+    assert_eq!(
+        mass.request.specification.objective,
+        Objective::MinimizeMass
+    );
+    let Err(error) = execute_topology(&request, &settings(), &FaerSolver, &|| false, &mut |_| {})
+    else {
+        return Err("OC must not execute a mass objective".into());
+    };
+    assert_eq!(error.diagnostic.code, "E340");
+    request.specification.constraints[0].kind = ConstraintKind::VolumeFraction(0.5);
+    assert!(prepare_topology(&request, &settings(), &|| false, &mut |_| {}).is_err());
+    Ok(())
+}
+
+#[test]
+fn incomplete_preparation_never_uses_request_material_as_a_fallback()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut request = request()?;
+    request.specification.material = None;
+    request.specification.load_cases.clear();
+    request.specification.constraints.clear();
+    let mut events = 0;
+    let Err(error) = execute_topology(&request, &settings(), &FaerSolver, &|| false, &mut |_| {
+        events += 1
+    }) else {
+        return Err("incomplete request unexpectedly calculated".into());
+    };
+    assert_eq!(error.diagnostic.code, "E347");
+    assert_eq!(error.diagnostic.span, request.specification.span);
+    assert!(error.diagnostic.message.contains("Material not specified"));
+    assert!(error.diagnostic.message.contains("Load cases"));
+    assert_eq!(events, 0);
+    Ok(())
 }
 
 #[test]

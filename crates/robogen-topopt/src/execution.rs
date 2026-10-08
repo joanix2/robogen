@@ -1,7 +1,7 @@
 //! Explicit execution of a typed DSL topology node. Numerical options are not DSL geometry.
 use crate::{
     TopologyRequest,
-    fem::{BoundaryConditions, GridDefinition, GridModel, NodalForce, NodeConstraint, NodeId},
+    fem::{BoundaryConditions, GridDefinition, NodalForce, NodeConstraint, NodeId},
     geometry::{Bounds, Region, Relation},
     linear::SparseLinearSolver,
     simp::{
@@ -28,12 +28,95 @@ pub(crate) fn failure(code: &str, span: SourceSpan, message: impl Into<String>) 
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputeBackend {
+    #[default]
+    Cpu,
+    Cuda,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExecutionSettings {
+    pub compute_backend: ComputeBackend,
     pub cells: [usize; 3],
     pub filter_radius: Length,
     pub threshold: f64,
     pub max_iterations: usize,
+}
+
+pub const MASS_MAX_CELLS: usize = 32_768;
+pub const MASS_MAX_AXIS: usize = 256;
+pub const MASS_MAX_CASE_CELLS: usize = 65_536;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GridResolution {
+    pub cells: [usize; 3],
+    pub cell_size: [Length; 3],
+    pub total_cells: usize,
+    pub degrees_of_freedom: usize,
+}
+
+pub fn grid_resolution(
+    specification: &robogen_ir::topology::TopologySpec<robogen_ir::SolidGeometry>,
+    cells: [usize; 3],
+) -> Result<GridResolution, ExecutionError> {
+    let (axis_limit, cell_limit) = if specification.objective == Objective::MinimizeMass {
+        (MASS_MAX_AXIS, MASS_MAX_CELLS)
+    } else {
+        (64, 2048)
+    };
+    if cells.iter().any(|count| *count == 0 || *count > axis_limit) {
+        return Err(failure(
+            "E340",
+            specification.span,
+            format!("Grid axes must be within 1..={axis_limit}"),
+        ));
+    }
+    let total_cells = cells.iter().product::<usize>();
+    let degrees_of_freedom = 3 * cells.iter().map(|count| count + 1).product::<usize>();
+    if total_cells > cell_limit
+        || (specification.objective == Objective::MinimizeMass
+            && (degrees_of_freedom > 150_000
+                || total_cells * specification.load_cases.len().max(1) > MASS_MAX_CASE_CELLS))
+    {
+        return Err(failure(
+            "E340",
+            specification.span,
+            format!(
+                "Requested grid: {total_cells} cells, {degrees_of_freedom} DOFs; backend limit {cell_limit} cells (mass: 150000 DOFs, {MASS_MAX_CASE_CELLS} cell-cases)"
+            ),
+        ));
+    }
+    let (_, _, bounds) = Region::compile(&specification.domain, &mut 4096, 0)?
+        .into_grid_frame(specification.domain.span)?;
+    Ok(GridResolution {
+        cells,
+        total_cells,
+        degrees_of_freedom,
+        cell_size: std::array::from_fn(|axis| {
+            Length::from_metres(bounds.dimensions()[axis] / cells[axis] as f64)
+        }),
+    })
+}
+
+pub fn resolution_for_cell_size(
+    specification: &robogen_ir::topology::TopologySpec<robogen_ir::SolidGeometry>,
+    size: Length,
+) -> Result<GridResolution, ExecutionError> {
+    if !size.metres().is_finite() || size.metres() <= 0.0 {
+        return Err(failure(
+            "E340",
+            specification.span,
+            "Cell size must be finite and positive",
+        ));
+    }
+    let (_, _, bounds) = Region::compile(&specification.domain, &mut 4096, 0)?
+        .into_grid_frame(specification.domain.span)?;
+    let cells = bounds
+        .dimensions()
+        .map(|length| (length / size.metres()).ceil().max(1.0) as usize);
+    grid_resolution(specification, cells)
 }
 #[derive(Debug, Clone)]
 pub struct InterfaceProjection {
@@ -74,15 +157,29 @@ pub fn prepare_topology(
 ) -> Result<PreparedTopology, ExecutionError> {
     let spec = &request.specification;
     let error = |message| failure("E340", spec.span, message);
+    if settings.compute_backend == ComputeBackend::Cuda && spec.objective != Objective::MinimizeMass
+    {
+        return Err(error(
+            "CUDA is available only for experimental minimize_mass diagnostics",
+        ));
+    }
     if cancelled() {
         return Err(failure("E345", spec.span, "Topology execution cancelled"));
     }
-    if spec.schema_version != TOPOLOGY_SCHEMA_VERSION || spec.material != request.material.id {
+    let issues = spec.preparation_issues();
+    if !issues.is_empty() {
+        return Err(failure(
+            "E347",
+            spec.span,
+            format!("Incomplete topology preparation: {}", issues.join("; ")),
+        ));
+    }
+    if spec.schema_version != TOPOLOGY_SCHEMA_VERSION || spec.material != Some(request.material.id)
+    {
         return Err(error("Schema or material identity mismatch"));
     }
-    if settings.cells.iter().any(|n| *n == 0 || *n > 64)
-        || settings.cells.iter().product::<usize>() > 2048
-        || !settings.filter_radius.metres().is_finite()
+    grid_resolution(spec, settings.cells)?;
+    if !settings.filter_radius.metres().is_finite()
         || settings.filter_radius.metres() <= 0.0
         || !settings.threshold.is_finite()
         || !(0.5..1.0).contains(&settings.threshold)
@@ -101,9 +198,6 @@ pub fn prepare_topology(
             "Topology declaration exceeds supported resource limits",
         ));
     }
-    if spec.objective != Objective::MaximizeStiffness {
-        return Err(error("CPU backend does not yet implement minimize_mass"));
-    }
     if let Some(process) = spec.manufacturing.first() {
         return Err(failure(
             "E340",
@@ -112,12 +206,27 @@ pub fn prepare_topology(
         ));
     }
     let density = request.material.density.kg_per_m3();
-    if !density.is_finite() || density <= 0.0 {
-        return Err(error("Material density must be finite and positive"));
+    if !density.is_finite()
+        || density <= 0.0
+        || !request.material.young_modulus.pascals().is_finite()
+        || request.material.young_modulus.pascals() <= 0.0
+        || !request.material.poisson_ratio.is_finite()
+        || !(-0.99..0.49).contains(&request.material.poisson_ratio)
+    {
+        return Err(error("Invalid material density or elastic properties"));
     }
     let mut fraction: Option<f64> = None;
     let mut max_mass: Option<f64> = None;
     for constraint in &spec.constraints {
+        if spec.objective == Objective::MinimizeMass
+            && !matches!(constraint.kind, ConstraintKind::MaxDisplacement(_))
+        {
+            return Err(failure(
+                "E340",
+                constraint.span,
+                "Experimental mass backend supports only max_displacement constraints",
+            ));
+        }
         let bad = || {
             failure(
                 "E340",
@@ -157,7 +266,7 @@ pub fn prepare_topology(
             _ => return Err(bad()),
         }
     }
-    if fraction.is_none() && max_mass.is_none() {
+    if spec.objective == Objective::MaximizeStiffness && fraction.is_none() && max_mass.is_none() {
         return Err(error(
             "maximize_stiffness requires a volume_fraction or max_mass budget",
         ));
@@ -195,7 +304,6 @@ pub fn prepare_topology(
         young_modulus: request.material.young_modulus,
         poisson_ratio: request.material.poisson_ratio,
     };
-    let model = GridModel::new(definition.clone()).map_err(|e| error_text(spec.span, e))?;
     let [nx, ny, nz] = settings.cells;
     let total = nx * ny * nz;
     let mut roles = Vec::with_capacity(total);
@@ -243,9 +351,10 @@ pub fn prepare_topology(
                     mandatory = true;
                     counts[index] += 1;
                     for corner in 0..8 {
-                        let node = model
-                            .node_id(std::array::from_fn(|a| p[a] + ((corner >> a) & 1)))
-                            .ok_or_else(|| error("Invalid projected node"))?;
+                        let position: [usize; 3] =
+                            std::array::from_fn(|axis| p[axis] + ((corner >> axis) & 1));
+                        let node =
+                            NodeId((position[0] * (ny + 1) + position[1]) * (nz + 1) + position[2]);
                         *nodes[index].entry(node).or_default() += 0.125;
                     }
                 }
@@ -465,6 +574,13 @@ pub fn execute_topology(
 ) -> Result<ComputedTopology, ExecutionError> {
     let prepared = prepare_topology(request, settings, cancelled, progress)?;
     let span = request.specification.span;
+    if request.specification.objective != Objective::MaximizeStiffness {
+        return Err(failure(
+            "E340",
+            span,
+            "CPU backend does not implement minimize_mass",
+        ));
+    }
     let optimization = optimize_grid(&prepared.grid, solver, cancelled, &mut |entry| {
         progress(ExecutionProgress::Optimization(entry))
     })

@@ -5,6 +5,7 @@ pub mod execution;
 pub mod fem;
 mod geometry;
 pub mod linear;
+pub mod mass;
 pub mod simp;
 pub mod surface;
 

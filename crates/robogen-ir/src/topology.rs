@@ -6,7 +6,7 @@ use robogen_domain::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const TOPOLOGY_SCHEMA_VERSION: u32 = 1;
+pub const TOPOLOGY_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TopologySpec<G> {
@@ -18,7 +18,7 @@ pub struct TopologySpec<G> {
     pub domain: G,
     pub preserve: Vec<PreservedRegion<G>>,
     pub voids: Vec<G>,
-    pub material: MaterialId,
+    pub material: Option<MaterialId>,
     pub load_cases: Vec<LoadCase>,
     pub objective: Objective,
     pub constraints: Vec<Constraint>,
@@ -114,6 +114,23 @@ pub enum ManufacturingProcess {
 }
 
 impl<G> TopologySpec<G> {
+    pub fn preparation_issues(&self) -> Vec<&'static str> {
+        let mut issues = Vec::new();
+        if self.material.is_none() {
+            issues.push("Material not specified");
+        }
+        if self.preserve.is_empty() {
+            issues.push("Preserved interfaces not specified");
+        }
+        if self.load_cases.is_empty() {
+            issues.push("Load cases and supports not specified");
+        }
+        if self.constraints.is_empty() {
+            issues.push("Mechanical limits not specified");
+        }
+        issues
+    }
+
     pub fn geometries(&self) -> Vec<&G> {
         std::iter::once(&self.domain)
             .chain(self.preserve.iter().map(|region| &region.geometry))

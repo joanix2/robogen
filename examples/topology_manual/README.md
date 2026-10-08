@@ -21,9 +21,33 @@ from `inspect-topology` can replace the name when names are ambiguous.
 
 The exported STL contains the selected operation in its **local frame**, including
 its domain offset. Outer transforms, compounds and Boolean operations in the
-surrounding document are not yet executed by this command. Standard `check`,
-`export-stl` and desktop document builds still refuse unresolved topology with
-E330. The manifest enables source inspection but does not change that boundary.
+surrounding document are not executed by this command. Standard `check` and
+desktop compilation only prepare domain/preserve/keepout meshes, without calling
+the solver. Standard `export-stl` refuses uncomputed topology (E330); use the
+explicit command above or the desktop per-part calculation/export. Computed
+results compose translation, rotation, color and compounds; downstream Booleans
+remain refused pending mechanical revalidation.
+
+Open **Exemples > TopOpt calculable (charges manuelles)**, or run:
+
+```sh
+cargo run -p robogen-desktop -- examples/topology_manual/main.rgn
+```
+
+Conception displays domain (blue), preserved regions (green) and keepouts (red)
+as independently switchable contours. Optimisation selects a part and exposes
+grid/filter/threshold/iteration controls; **Lancer cette piece** explicitly starts
+that part in the cancellable worker. The preset above is editable, not silently
+tuned for robot interfaces. Charges, interfaces, materials and constraints remain
+editable through the undoable DSL editor, opened from the control panel.
+
+Results show binary measurements and the settings actually used. Calculating a
+second part preserves the first. Editing source (including undo/redo) invalidates
+all TopOpt results conservatively without recalculation. States distinguish not
+calculated, running, calculated, obsolete, failed and cancelled. In Optimisation,
+export contains only the selected calculated part; whole-document export in
+Conception requires all declared topology parts to be calculated. Preparation
+layers never enter an export, even when all displayed layers are hidden.
 
 ## Projection And Mechanical Assumptions
 
