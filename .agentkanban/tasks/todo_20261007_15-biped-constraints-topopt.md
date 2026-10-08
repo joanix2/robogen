@@ -45,3 +45,14 @@ suivis explicitement ; pas de cloture du jalon complet sans leurs validations.
 
 Checkpoint local autorise pour cette tranche scientifique validee. La suite
 reconstruction/publication reste ouverte dans le TODO M7 et l'iteration 1.
+
+# Iteration 4 - Reconstruction M7 autonome
+
+- [x] Extraire une surface avec bibliotheque existante et DTO sans type tiers.
+- [x] Valider fermeture, orientation, triangles et composantes ; tester champs et annulation.
+- [x] Raccorder les densites SIMP et produire un artefact de visualisation identifie comme approximation.
+- [x] Documenter hypotheses/mesures et executer les gates (118 tests, fmt, Clippy ; suivi et checkpoint de la visualisation uniquement).
+
+118 tests, fmt et Clippy passent. Artefact reel : 208 sommets, 404 triangles,
+3 composantes. Les faces d'appui/charge sont perdues ; la surface n'est pas
+un support valide. Preservation et reanalyse mecanique restent a implementer.

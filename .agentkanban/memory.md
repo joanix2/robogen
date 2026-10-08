@@ -43,3 +43,11 @@
   fmt/Clippy passes. Benchmark 65 iterations, volume .35, compliance/reference
   .379118 ; aucune surface reconstruite, publication desktop ou support robot.
   E330 reste actif. M5/M8 et les donnees physiques du bipede restent requis.
+
+- 2026-10-08 : ticket 15 iteration 4 livre reconstruction de visualisation
+  Surface Nets + STL via exemple, 118 tests/fmt/Clippy passes. Deux couches
+  exterieures et subdivision trilineaire x2 requises pour le benchmark. Mesh
+  ferme de 3 composantes, 208 sommets/404 triangles, volume 13463 mm3 vs densites
+  33600 mm3 ; appui/face chargee perdus. Ne pas attribuer compliance du champ
+  au mesh. Suite : preserver interfaces/chemins de charge et reanalyser avant
+  publication mecanique. Desktop/TopologySpec restent indisponibles (E330).

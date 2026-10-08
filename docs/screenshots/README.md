@@ -101,3 +101,13 @@ Prerequisite audit, 2026-10-08:
 Both actual X11 clients were visually inspected without forced resizing.
 These close two missing desktop capture checks, not all M1 acceptance criteria
 or the compact layout checks for these views. No backend result is claimed.
+
+M7 standalone reconstruction, 2026-10-08:
+
+- [Actual beam STL diagnostic](m7-beam-surface-20261008.png): offline matplotlib
+	figure generated from the actual STL reimported through trimesh, not a native
+	application capture. Three components are colored separately; 208 vertices,
+	404 triangles. Watertightness, consistent winding and volume were checked on
+	reimport. Neither the X=0 support nor the X=120 loaded face is preserved.
+	This figure demonstrates a visualization artifact, not a usable mechanical
+	support, native UI integration or post-reconstruction strength validation.

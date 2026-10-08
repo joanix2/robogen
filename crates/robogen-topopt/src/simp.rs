@@ -390,8 +390,11 @@ mod tests {
 
     #[test]
     fn simp_improves_uniform_reference_at_same_volume() -> Result<(), SimpError> {
-        let request = request();
+        let mut request = request();
+        request.options.max_iterations = 100;
         let result = optimize_beam(&request, &FaerSolver, &|| false, &mut |_| {})?;
+        let surface = result.reconstruct_surface(0.5, &|| false);
+        assert!(surface.is_ok(), "benchmark surface: {surface:?}");
         assert!(result.analysis.compliance.joules() < 0.95 * result.uniform_reference.joules());
         assert!(
             result

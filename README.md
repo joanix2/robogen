@@ -70,8 +70,10 @@ until a real backend can generate and validate the support.
 A separate [M7 cantilever benchmark](examples/topopt_beam/README.md) now performs
 real CPU Hex8 FEM and filtered SIMP with sparse faer factorization:
 `cargo run -p robogen-topopt --example beam`. It reports measured compliance,
-volume, residual and convergence; it does not yet reconstruct a surface or
-enable robot-support optimization in the desktop.
+volume, residual and convergence. Add `-- --surface-stl /tmp/beam-approximate.stl`
+to export an approximate visualization surface. The reference surface has three
+disconnected components and loses its load/support interfaces; it is not a
+usable support. Robot-support optimization remains unavailable in the desktop.
 
 Quality gates are `cargo fmt --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and

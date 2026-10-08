@@ -7,6 +7,7 @@ Run from the workspace root after activating the local Rust toolchain:
 
 ```sh
 cargo run -p robogen-topopt --example beam > /tmp/beam-history.csv
+cargo run -p robogen-topopt --example beam -- --surface-stl /tmp/beam-approximate.stl
 cargo test -p robogen-topopt
 ```
 
@@ -79,9 +80,57 @@ Results retain the request and solver identifier; revision is caller-scoped,
 not a global cache key. No document publication or stale-result dispatch exists
 on this standalone path yet.
 
-No isosurface reconstruction, watertight export, stress/frequency constraints,
-preserved/excluded geometric regions, FDM/CNC constraints, post-operation
-revalidation or manufacturing proof is provided. `topology(...)` still fails
-with E330 until its complete requested capabilities are implemented. M7's
-reconstruction and desktop acceptance, and M5/M8 robot mechanics, remain open.
+Stress/frequency constraints, preserved/excluded geometric regions, FDM/CNC
+constraints, post-operation revalidation and manufacturing proof remain absent.
+`topology(...)` still fails with E330 until its complete requested capabilities
+are implemented. M7 desktop acceptance and M5/M8 robot mechanics remain open.
+
+## Approximate Surface (2026-10-08)
+
+`BeamOptimization::reconstruct_surface` carries the full request, caller revision
+and solver identifier into a `BeamSurface`. Its `ReconstructedSurface` stores
+typed Length vertices, triangle indices, threshold, reconstruction backend and
+sampling subdivision count. Mesh arrays are read-only to callers. Volume is
+reported in cubic metres through a typed wrapper. No CAD kernel type is exposed.
+
+The `SurfaceReconstructor` port uses fast-surface-nets 0.2.1. Densities are sampled
+at cell centres with two outside zero-density layers, then trilinearly sampled
+at twice the original resolution. This refines only extraction, not FEM or the
+optimization result. The level field is threshold minus density, not a metric
+signed distance. Thresholds [0.5,1) keep the surface inside the design envelope;
+the example selects 0.5. Ambiguous or degenerate output is rejected, not repaired.
+One outside layer initially left open boundary faces; coarse unrefined extraction
+also produced a non-manifold edge on the actual benchmark. Both failures were
+detected before export and are covered by the full-field/benchmark tests.
+
+Checks cover finite in-domain coordinates, triangle area, two oppositely oriented
+faces per edge, a connected circular link at each vertex, surface components and
+positive total signed volume. These are topological checks, not a proof against
+self-intersection. Cavity shells count as surface components too. Cooperative
+cancellation surrounds the bounded extraction call and runs during sampling and
+validation; the library call itself is not interruptible. Input budgets match
+the standalone grid (64 cells per axis, 2048 total).
+
+The example reuses robogen-export's binary STL writer via development-only
+dependencies. It converts typed metres to the existing Mesh DTO; the writer
+emits millimetres. `--surface-stl PATH` explicitly requests an approximate
+visualization artifact, not a mechanically revalidated part. It replaces an
+existing destination atomically using the existing exporter. No desktop export
+guard is bypassed and no new persistent project format is introduced.
+
+Measured reference export: 208 vertices, 404 triangles, **three disconnected
+surface components**. Enclosed mesh volume is 13,463.265650 mm3 versus filtered
+material volume 33,600 mm3. Independent STL reimport with trimesh confirmed
+closure, consistent winding, three components and volume 13,463.265672 mm3.
+Bounds in millimetres: [1.696579,4.796383,1.677495] to
+[76.402588,35.203793,18.322504]. Neither the clamp at X=0 nor the loaded face at
+X=120 survives this thresholding. **This is not a usable cantilever support.**
+The density-field compliance must not be assigned to this surface. The next
+mechanical step is preservation of interfaces/load paths and reanalysis after
+reconstruction, not a claim that this STL retains the SIMP stiffness or volume.
+
+[Diagnostic figure](../../docs/screenshots/m7-beam-surface-20261008.png) is
+rendered from the actual exported STL, not a native desktop screenshot.
+Four new surface tests and the extended SIMP/STL integration pass. Workspace:
+118 tests, fmt and Clippy all-targets -D warnings pass.
 

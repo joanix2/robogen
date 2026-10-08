@@ -6,11 +6,16 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+fast-surface-nets = "=0.2.1"
 faer = { version = "=0.22.6", default-features = false, features = ["std", "sparse-linalg"] }
 robogen-domain = { path = "../robogen-domain" }
 robogen-ir = { path = "../robogen-ir" }
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+robogen-cad = { path = "../robogen-cad" }
+robogen-export = { path = "../robogen-export" }
 
 [lints]
 workspace = true

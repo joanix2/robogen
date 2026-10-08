@@ -6,6 +6,18 @@ use robogen_topopt::{
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut arguments = std::env::args_os().skip(1);
+    let output = match arguments.next() {
+        None => None,
+        Some(flag) if flag == "--surface-stl" => {
+            let path = arguments.next().ok_or("--surface-stl requires a path")?;
+            if arguments.next().is_some() {
+                return Err("usage: beam [--surface-stl PATH]".into());
+            }
+            Some(std::path::PathBuf::from(path))
+        }
+        Some(_) => return Err("usage: beam [--surface-stl PATH]".into()),
+    };
     let request = BeamRequest {
         beam: Beam {
             dimensions: [120.0, 40.0, 20.0].map(Length::from_millimetres),
@@ -31,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Linear isotropic elasticity; SIMP p=3, Emin/E=1e-6; density filter 15 mm; volume=0.35"
     );
     eprintln!(
-        "No robot loads, stress certification, reconstructed surface or manufacturing result."
+        "No robot loads, stress certification or manufacturing result; reconstructed surface is visualization only."
     );
     println!("iteration,compliance_J,volume_fraction,max_design_change,relative_residual");
     let started = std::time::Instant::now();
@@ -60,5 +72,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .mean_tip_displacement
             .map(Length::millimetres)
     );
+    let reconstruction = result.reconstruct_surface(0.5, &|| false)?;
+    let surface = &reconstruction.surface;
+    eprintln!(
+        "surface_backend={}; threshold={}; vertices={}; triangles={}; surface_components={}; enclosed_volume_mm3={:.6}; filtered_material_volume_mm3={:.6}; revision={}",
+        surface.backend,
+        surface.threshold,
+        surface.vertices().len(),
+        surface.triangles().len(),
+        surface.components,
+        surface.enclosed_volume.cubic_metres() * 1e9,
+        reconstruction.filtered_material_volume.cubic_metres() * 1e9,
+        reconstruction.request.document_revision
+    );
+    if let Some(path) = output {
+        let mesh = robogen_cad::Mesh {
+            vertices: surface
+                .vertices()
+                .iter()
+                .map(|point| robogen_cad::Vertex {
+                    position: point.map(|length| length.metres() as f32),
+                })
+                .collect(),
+            triangles: surface
+                .triangles()
+                .iter()
+                .map(|indices| robogen_cad::Triangle {
+                    indices: *indices,
+                    color: None,
+                })
+                .collect(),
+        };
+        robogen_export::export_binary_stl(&mesh, &path)?;
+        eprintln!(
+            "Approximate visualization STL (millimetres), NOT mechanically revalidated: {}",
+            path.display()
+        );
+    }
     Ok(())
 }

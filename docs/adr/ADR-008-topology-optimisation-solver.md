@@ -61,6 +61,38 @@ La reconstruction, les contraintes geometriques/fabrication, les validations
 apres reconstruction et le branchement desktop restent a implementer. Le
 backend de TopologySpec arbitraire reste explicitement indisponible.
 
+## Reconstruction autonome (iteration 4)
+
+Premier adaptateur SurfaceReconstructor : fast-surface-nets 0.2.1 (MIT/Apache),
+alternative eprouvee a marching cubes sur grille reguliere. Aucun type tiers
+n'est expose. Echantillons aux centres des cellules, deux couches exterieures de
+densite nulle pour fermer les faces de bord du bloc, interpolation lineaire du champ seuil-densite ; ce champ n'est
+pas une distance signee metrique. Seuil borne a [0.5,1) afin de ne pas etendre
+le domaine. L'algorithme arrondit les bords et peut supprimer des liaisons fines.
+Echantillonnage trilineaire subdivise par deux avant extraction : la grille
+initiale du benchmark produisait une arete non-manifold, refusee par le
+validateur. Cette subdivision ne change ni les densites FEM ni le seuil.
+Le volume de la surface n'est ni le volume filtre ni un budget garanti.
+
+Avant restitution : controles de finitude, indices, triangles non degeneres,
+bornes, fermeture et orientation des aretes, liens des sommets et composantes.
+Les artefacts conservent le seuil et l'identite du reconstructeur. Les resultats
+SIMP portent deja requete, revision et solveur ; une surface seule ne certifie
+ni rigidite ni contraintes de fabrication. Les intersections geometriques et
+la reanalyse mecanique de la surface ne sont pas garanties par ces controles.
+Un resultat ambigu/degenerate est refuse, pas repare silencieusement.
+
+L'exemple/test compose le DTO surface avec le Mesh RoboGen deja consomme par
+robogen-export, via des dev-dependencies seulement. Pas d'arete de production
+TopOpt -> CAD/export ni de second writer STL. STL est exprime en millimetres ;
+l'artefact est une visualisation non revalidee, pas une piece certifiee. La
+publication des declarations topology() demeure bloquee par E330.
+
+Mesure : la surface du benchmark a trois composantes et ne conserve ni la face
+fixe ni la face chargee. La topologie fermee ne vaut pas validation mecanique.
+La prochaine tranche doit preserver les interfaces et reanalyser la geometrie ;
+elle ne doit pas attribuer la compliance du champ de densites au STL seuille.
+
 ## References
 
 - <https://docs.rs/faer/latest/faer/sparse/>

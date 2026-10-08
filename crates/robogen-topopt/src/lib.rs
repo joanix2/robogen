@@ -4,6 +4,7 @@ use thiserror::Error;
 pub mod fem;
 pub mod linear;
 pub mod simp;
+pub mod surface;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopologyRequest {

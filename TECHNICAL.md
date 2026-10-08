@@ -443,6 +443,42 @@ All 114 workspace tests pass; fmt and workspace all-targets Clippy -D warnings p
 M7 reconstruction/desktop publication and constraint capability checking remain
 open; these results do not certify stress, fabrication or any robot support.
 
+## M7 Surface Reconstruction (2026-10-08)
+
+Ticket 15 iteration 4 adds `surface` in robogen-topopt: backend-neutral
+SurfaceReconstructor/DensityGrid and a private fast-surface-nets 0.2.1 adapter.
+Two outside zero-density layers close chunk boundaries; trilinear subdivision
+by two avoids the benchmark's coarse-grid non-manifold case. No FEM densities
+or threshold are changed to obtain the mesh. Non-manifold/degenerate outputs
+remain errors; empty/invalid/cancelled states are distinct. Threshold [0.5,1),
+typed coordinates/volume, immutable mesh arrays, component count and backend/
+sampling metadata accompany the result. BeamSurface retains request/revision and
+solver provenance. No global artifact identity or persistent cache is claimed.
+
+Validation checks finite coordinates/bounds, triangle area, opposite edge pairs,
+vertex links and signed volume. It does not prove absence of self-intersections,
+mechanical performance or preservation of interfaces. The bounded extraction
+call is not internally cancellable; surrounding sampling/validation is.
+
+The standalone example optionally writes `--surface-stl PATH` using existing
+robogen-export and Mesh DTO through dev-dependencies only; production TopOpt
+does not depend on CAD/export. Native UI and E330 guards are unchanged. STL
+coordinates are millimetres and are tested by decoding the binary records.
+
+Actual converged benchmark: 208 vertices/404 triangles, three components,
+surface volume 13463.265650 mm3 vs filtered material 33600 mm3. Independent
+trimesh STL reimport agrees on closure/winding/components/volume. X extent is
+1.696579..76.402588 mm: neither the fixed nor the loaded face survives. This
+is explicitly a failed mechanical reconstruction, despite valid surface
+topology. The density-field compliance is not a property of that mesh.
+The diagnostic figure in docs/screenshots is an offline plot of the real STL,
+not a desktop capture. Interface preservation and post-reconstruction reanalysis
+must precede any robot-support publication.
+
+Four surface tests added, existing benchmark and integration extended to
+reconstruction/STL/provenance; all 118 workspace tests and fmt/Clippy gates pass.
+Full assumptions and reproduction command: examples/topopt_beam/README.md.
+
 ## Repository hygiene
 
 `.gitignore` excludes nested Rust target directories, local toolchains/Python

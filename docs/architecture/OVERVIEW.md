@@ -8,6 +8,11 @@ Ajout verifie le 2026-10-08 : tranche M7 autonome autorisee avant cloture M1-M6.
 adaptateur sparse faer prive, progression/annulation et provenance de requete.
 Ce benchmark synchrone n'est pas appele par l'UI ; le chemin `topology(...)`
 reste indisponible (E330), sans reconstruction ni publication de support.
+La suite de ce benchmark sait extraire une surface de visualisation et un STL
+via SurfaceReconstructor (fast-surface-nets prive). CAD/export sont utilises
+uniquement comme dev-dependencies de l'exemple/test TopOpt. La surface de
+reference est fermee mais fragmente et ne preserve pas les appuis/charges ;
+elle n'est pas une reconstruction mecanique valide ni un resultat desktop.
 Voir [ADR-008](../adr/ADR-008-topology-optimisation-solver.md) et
 [le benchmark](../../examples/topopt_beam/README.md). Aucun autre jalon n'est
 valide retroactivement par cette tranche.

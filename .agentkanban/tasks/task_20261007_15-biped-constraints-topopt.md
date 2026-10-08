@@ -276,3 +276,64 @@ n'est presente comme piece exportable. M5/M8, interfaces/charges/materiau et
 profils de fabrication restent requis avant les supports robotiques.
 
 ### user
+
+2026-10-08 : vas y continue.
+
+### agent
+
+Iteration 4 : poursuivre M7 autonome par reconstruction de surface du champ
+de densites, sans changer de lane. Depot propre au depart, fichiers TopOpt
+actuels relus. Hypothese : un champ cellulaire avec bord exterieur vide permet
+une isosurface fermee via fast-surface-nets ; discriminant initial : champ
+plein, bornes physiques et chaque arete partagee par deux triangles opposes.
+
+Plan/todo/implementation : adaptateur SurfaceReconstructor et DTO RoboGen prive
+des types tiers ; validation des entrees, triangles, fermeture/orientation et
+composantes ; tests de champ plein/vide/anisotrope et annulation ; integration
+avec les densites SIMP et exemple de poutre, documentation et gates. La surface
+reste approchee, non revalidee mecaniquement et distincte du volume filtre.
+E330 reste actif pour les contraintes arbitraires et les supports robotiques.
+
+### user
+
+### agent
+
+## Iteration 4 - Surface de visualisation verifiee
+
+Adaptateur SurfaceReconstructor implemente avec fast-surface-nets 0.2.1,
+DensityGrid et ReconstructedSurface sans type tiers. Sommets Length, Volume,
+seuil/resolution/backend ; BeamSurface conserve requete/revision et solveur.
+Deux couches exterieures vides et subdivision trilineaire par deux. Le premier
+test a detecte des faces ouvertes avec une seule couche ; le benchmark reel
+a ensuite expose une arete non-manifold sans subdivision. Aucun export de
+ces etats invalides. Les tests couvrent maintenant les deux cas.
+
+Controles : finitude/bornes, indices et aires, deux faces d'orientations opposees
+par arete, liens circulaires des sommets, composantes et volume signe. Pas de
+preuve generale d'absence d'auto-intersections ni de validation mecanique.
+Annulation avant/apres l'extraction bornee et dans echantillonnage/validation.
+
+L'exemple accepte --surface-stl PATH et reutilise le writer robogen-export
+(dev-dependencies CAD/export uniquement). Export de visualisation reel dans
+/tmp/robogen-beam-approximate.stl ; 208 sommets, 404 triangles, 3 composantes.
+Volume 13463.265650 mm3 contre 33600 mm3 de matiere filtree. Trimesh reimporte
+le STL : ferme, winding coherent, 3 composantes et volume 13463.265672 mm3.
+Figure inspectee docs/screenshots/m7-beam-surface-20261008.png, issue du STL,
+pas d'une application native. Le calcul SIMP et ses 65 iterations restent
+inchanges ; temps local 20.830 s hors compilation/reconstruction/export.
+
+Limite majeure explicite : X s'etend de 1.696579 a 76.402588 mm, donc ni
+l'appui X=0 ni la charge a X=120 sont preserves. Cette surface est geometriquement
+exploitable pour inspection, pas un support mecanique. La compliance du champ
+de densites ne lui est pas attribuee ; les trois fragments ne sont pas fusionnes
+artificiellement. Prochaine tranche : preservation des interfaces/chemins de
+charge et reanalyse, avant publication mecanique et supports robotiques.
+
+118 tests workspace passes, fmt --check, Clippy workspace all-targets
+-D warnings et diagnostics editeur propres. Test vertical etendu jusqu'au
+STL en millimetres, provenance/revision et regression du benchmark a convergence.
+Docs et ADR alignes ; checkpoint local de la tranche de visualisation autorise
+par la demande de continuation. M7 global, desktop et ticket 15 restent ouverts,
+E330 reste actif, aucun push ni changement de lane.
+
+### user
