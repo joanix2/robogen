@@ -230,3 +230,13 @@ ne sont pas encore projetees vers les NodeId revision-locaux ; cette projection
 et la publication sont les etages suivants. Voir ADR-008 et le README benchmark
 pour limites, budget et cas revalide ; les anciennes mesures de Surface Nets
 ci-dessus restent des constats du preview lisse distinct.
+
+## Execution explicite d'un noeud TopologySpec (iteration 7)
+
+La CLI peut maintenant compiler une declaration et executer le projecteur CSG,
+SIMP multi-cas et la reanalyse binaire via TopOpt, puis exporter ce noeud dans son
+repere local. Les contraintes prises en charge sont controlees ; les autres sont
+refusees explicitement. Voir ADR-012 et examples/topology_manual/README.md.
+Project/desktop et la composition des operations aval restent a raccorder : leur
+E330 n'est pas retire par ce chemin d'execution explicite. Aucun type de kernel,
+solveur tiers ou UI n'est ajoute au modele semantique partage.

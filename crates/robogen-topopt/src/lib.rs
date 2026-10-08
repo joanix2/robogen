@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod execution;
 pub mod fem;
+mod geometry;
 pub mod linear;
 pub mod simp;
 pub mod surface;

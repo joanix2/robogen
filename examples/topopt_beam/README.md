@@ -143,7 +143,7 @@ Void cells exactly 0. The density filter mixes only Design cells. Its transpose
 excludes fixed variables, while the volume includes preserved material. The
 uniform reference now means uniform *free* density with identical fixed regions.
 This OC implementation targets an equality volume: infeasible targets are
-rejected, and fully fixed masks require direct binary FEM rather than SIMP.
+rejected, and fully fixed masks are analysed without OC updates (`FixedRegions`, added in iteration 7).
 Regions are explicit caller inputs; no interface thickness or connecting rail is
 invented. The SIMP floor remains an optimization regularization, including Void
 cells, and cannot establish that a thresholded solid carries the loads.
@@ -275,3 +275,7 @@ or implement oblique pin/frictionless bases, moment distribution or manufacturin
 Iteration 6 verification: 130 workspace tests pass, with formatting and workspace
 all-targets Clippy -D warnings. No native UI route is changed by this numerical
 slice, and no desktop acceptance is claimed.
+
+The typed DSL execution path added in iteration 7 is documented in
+[the executable topology example](../topology_manual/README.md). It has different
+interface-volume boundary conditions from this end-face benchmark.

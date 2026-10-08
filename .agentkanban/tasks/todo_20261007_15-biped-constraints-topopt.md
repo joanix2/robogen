@@ -72,3 +72,14 @@ un support valide. Preservation et reanalyse mecanique restent a implementer.
 - [x] Reanalyser chaque cas sur le solide binaire ; verifier absence de vide porteur, appuis/charges et cancellation.
 - [x] Tester configurations non-X, forces opposees, sensibilites multi-cas et regressions poutre/STL.
 - [x] Documenter contrats/hypotheses, verifier gates et committer la tranche sans clore le systeme complet.
+
+# Iteration 7 - Projecteur et execution TopologySpec via CLI
+
+- [x] Classifier CSG de facon conservative et construire les masques, bornes et conflits avec provenance.
+- [x] Projeter interfaces volumiques, forces/appuis et cas identifies ; documenter la distribution choisie.
+- [x] Executer TopologyRequest avec capacites explicites et verification volume/masse/deplacement sur solide reanalyse.
+- [x] Ajouter commande CLI, exemple .rgn et tests DSL -> calcul -> STL ainsi que refus/annulation/invariants.
+- [x] Verifier gates, documenter limites et committer sans clore l'objectif global.
+
+Validation : 139 tests workspace, fmt --check et Clippy -D warnings passes.
+Les objectifs/contraintes absents et la publication desktop restent ouverts.

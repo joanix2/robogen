@@ -67,3 +67,14 @@
   des modes rigides. 130 tests/fmt/Clippy passes, integration charges opposees
   jusqu'au STL. Projecteur geometries/interfaces DSL et publication encore
   absents : objectif global actif, E330 conserve, aucun support robot revendique.
+
+- 2026-10-08 : ticket 15 iteration 7 execute un TopologySpec depuis .rgn via CLI
+  optimize-topology : projection CSG conservative, interfaces volumiques,
+  forces/moments et fixed/frictionless cartesien, SIMP et reanalyse multi-cas.
+  Budget volume/masse et deplacement controles avant STL ; autres capacites
+  refusees. Exemple topology_manual : 22 updates, 216 g, 336 triangles, 2 cas.
+  139 tests/fmt/Clippy passes ; regression translation corrigee en repere local.
+  DSL garde seulement contraintes/geometrie, reglages numeriques externes.
+  Objectif global non acheve : composition CAD/desktop, minimisation masse,
+  stress/securite/frequence/fabrication et supports robot. E330 reste dans le
+  chemin document ; CLI exporte uniquement le noeud choisi dans son repere local.

@@ -82,3 +82,52 @@ The current compilation revision is worker-scoped; synchronous/standalone
 builds use 0. This is not a globally unique cache key. TopologyRequest replaces
 the unused target-name/volume-fraction placeholder; its only existing adapter
 remains unavailable. The old result DTO is not a publication contract for M7.
+
+## Projection CPU et execution explicite (iteration 7, 2026-10-08)
+
+Un projecteur TopOpt lit SolidGeometry sans creer de nouveau modele persistant.
+Il classe les cellules par intervalles/bornes analytiques sur CSG : inside,
+outside, boundary. Le domaine retient uniquement des cellules entierement dedans ;
+les keepouts excluent toute cellule d'interieur intersectant potentiellement le
+vide ; preserve impose toute cellule intersectant potentiellement P. Si ces
+regles entrent en conflit, ou P sort du domaine couvert, la resolution/requete
+est refusee. Une classification conservative peut refuser une forme faisable ;
+elle ne peut pas autoriser un empietement inconnu. Les frontieres sont traitees
+comme celles de solides regularises (contacts de surface sans volume commun).
+La fraction de volume se refere au domaine discret interieur, avant keepouts ;
+les volumes physiques effectifs et la resolution restent exposes. Les transformations
+et CSG sont analyses recursivement avec budgets ; topology imbrique non resolu
+reste indisponible. Aucun simple echantillonnage au centre ne certifie les regions.
+
+Les interfaces existantes sont des volumes, pas des faces. Pour ce backend, fixed
+bloque tous les noeuds des cellules d'interface preservees. Une force totale est
+repartie uniformement dans ce volume voxelise, avec poids nodaux Hex8 constants
+(1/8 par coin par cellule). Le centre d'application est donc le centroide de ce
+volume discret ; aucune face de montage n'est devinee. Le contrat expose ces
+hypotheses et conserve l'ID de l'interface. Un moment peut se projeter en couple
+de forces a resultant nul via le tenseur geometrique des noeuds ponderes.
+Frictionless cartesien bloque sa seule direction normale ; pin et normale
+oblique sont refuses tant qu'un adaptateur approprie n'existe pas.
+
+Execution explicite : TopologyRequest + reglages numeriques hors DSL -> requete
+Grid -> optimisation -> reconstruction binaire -> reanalyse tous cas -> controles
+budget et deplacement. MaximizeStiffness minimise la somme des compliances ;
+minimize_mass, stress/securite/frequence et fabrication non implementes sont
+refuses avec provenance, non assimiles a des capacites presentes. Ils restent
+au backlog de l'objectif global. Le resultat conserve source/revision/material,
+origine de grille, analyses et historique. La masse utilise la densite declaree.
+
+La CLI compose compilation semantique, TopOpt et exporter existant : export de
+l'operation choisie dans son repere local, avec origine de grille restituee.
+Elle ne publie pas encore un document aux Booleens/transforms aval et ne retire
+pas le garde E330 du chemin Project/desktop. Les options cellules/filtre/seuil
+sont des reglages d'execution explicites, pas une description manuelle du support.
+Les deps TopOpt/domain sont ajoutees a l'application CLI, pas entre adaptateurs.
+
+Les translations communes sont combinees puis soustraites symboliquement avant
+classification : comparaisons dans le repere local de grille, origine restituee
+a la sortie. Une regression a detecte qu'operer directement sur des coordonnees
+globales [1,2,3] m creait un faux conflit sur une geometrie de 120 mm ; cette
+normalisation le corrige sans elargir les regions avec une tolerance arbitraire.
+Le test conserve les masques, poids/centres d'interface et dimensions lors du
+deplacement commun. Les predicates restent en virgule flottante, non certifies.

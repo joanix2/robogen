@@ -1,0 +1,3 @@
+schema_version = 1
+name = "Manual topology constraints (explicit CLI execution)"
+source = "main.rgn"

@@ -101,6 +101,7 @@ pub struct Iteration {
 pub enum StopReason {
     DesignChange,
     IterationLimit,
+    FixedRegions,
 }
 
 #[derive(Debug)]
@@ -129,8 +130,6 @@ pub enum SimpError {
     },
     #[error("Volume target is incompatible with preserved/void regions")]
     InfeasibleVolume,
-    #[error("SIMP requires at least one design cell; use binary FEM for a fully fixed mask")]
-    NoDesignVariables,
     #[error("Optimality criteria update failed its finite-value or volume checks")]
     Update,
     #[error(transparent)]
@@ -271,14 +270,19 @@ pub fn optimize_grid(
         .iter()
         .filter(|role| **role == CellRegion::Design)
         .count();
-    if free == 0 {
-        return Err(SimpError::NoDesignVariables);
-    }
-    let free_density =
-        (options.volume_fraction * model.element_count() as f64 - preserved as f64) / free as f64;
-    if !free_density.is_finite() || !(MIN_DENSITY..=1.0).contains(&free_density) {
-        return Err(SimpError::InfeasibleVolume);
-    }
+    let free_density = if free == 0 {
+        if preserved as f64 / model.element_count() as f64 > options.volume_fraction + 1e-10 {
+            return Err(SimpError::InfeasibleVolume);
+        }
+        0.0
+    } else {
+        let value = (options.volume_fraction * model.element_count() as f64 - preserved as f64)
+            / free as f64;
+        if !value.is_finite() || !(MIN_DENSITY - 1e-12..=1.0 + 1e-12).contains(&value) {
+            return Err(SimpError::InfeasibleVolume);
+        }
+        value.clamp(MIN_DENSITY, 1.0)
+    };
     let mut design: Vec<_> = filter
         .regions
         .iter()
@@ -293,9 +297,16 @@ pub fn optimize_grid(
     let uniform_reference = Compliance::sum(analyses.iter().map(|case| case.analysis.compliance));
     let mut history = vec![grid_iteration(0, &analyses, &densities, 0.0)];
     progress(&history[0]);
-    let mut stop_reason = StopReason::IterationLimit;
+    if cancelled() {
+        return Err(FemError::Cancelled.into());
+    }
+    let mut stop_reason = if free == 0 {
+        StopReason::FixedRegions
+    } else {
+        StopReason::IterationLimit
+    };
     let volume_derivative = filter.transpose(&vec![1.0 / design.len() as f64; design.len()]);
-    for number in 1..=options.max_iterations {
+    for number in 1..=if free == 0 { 0 } else { options.max_iterations } {
         if cancelled() {
             return Err(FemError::Cancelled.into());
         }
@@ -340,7 +351,8 @@ pub fn optimize_grid(
 
 fn validate_options(options: &SimpOptions) -> Result<(), SimpError> {
     if !options.volume_fraction.is_finite()
-        || !(0.01..0.99).contains(&options.volume_fraction)
+        || options.volume_fraction <= 0.0
+        || options.volume_fraction > 1.0
         || !options.penalty.is_finite()
         || !(1.0..=5.0).contains(&options.penalty)
         || !options.stiffness_floor.is_finite()

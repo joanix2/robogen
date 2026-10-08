@@ -2718,8 +2718,10 @@ name = "robogen-cli"
 version = "0.1.0"
 dependencies = [
  "robogen-cad",
+ "robogen-domain",
  "robogen-export",
  "robogen-project",
+ "robogen-topopt",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2863,6 +2865,7 @@ dependencies = [
  "fast-surface-nets",
  "robogen-cad",
  "robogen-domain",
+ "robogen-dsl",
  "robogen-export",
  "robogen-ir",
  "serde",

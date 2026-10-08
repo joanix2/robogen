@@ -482,3 +482,77 @@ revisions et annulation, puis generer les supports du bipede. E330 reste actif
 car le projecteur et le dispatch des capacites ne sont pas encore raccordes.
 
 ### user
+
+### agent
+
+## Iteration 7 - Execution d'une declaration topology depuis le DSL
+
+Le commit dca5eaa est propre et la tranche precedente est un progres verifie.
+Plan/todo/implementation : projecteur CSG conservateur (boites, cylindres,
+transforms, union/compound/difference) vers cellules Design/Preserve/Void ;
+projection explicite des interfaces volumiques vers forces/appuis nodaux ;
+execution TopologyRequest -> SIMP multi-cas -> solide binaire reanalyse. Ajouter
+commande CLI et fixture .rgn, sans modifier le DSL pour y placer les reglages
+numeriques du solveur. ADR avant ces choix de projection et de chargement.
+
+Verifier P inclus dans G, G inclus dans domaine et vide exclu de facon conservative
+sur les cellules, avec diagnostic si resolution/conflit empeche de le prouver.
+Ne pas assimiler un test au centre de cellule a une preuve de ces invariants.
+Conserver identites/spans/revision, progression/annulation. Premiere capacite
+executee : maximize_stiffness avec budget volume/masse et controle deplacement
+sur chaque cas reanalyse ; les autres objectifs/contraintes/process absents sont
+refuses nommement, jamais ignores. Ils restent requis par l'objectif complet.
+Export CLI local a l'operation nommee, sans pretendre avoir applique les operations
+aval du document ; l'integration de cette geometrie dans le graphe/desktop suit.
+
+### user
+
+
+### agent
+
+## Iteration 7 - Declaration DSL executee et verifiee
+
+La commande optimize-topology compile une declaration .rgn, projette ses regions
+CSG et interfaces sur la grille, optimise les cas independants puis reconstruit
+et reanalyse le solide binaire avant export STL atomique. Le DSL reste declaratif ;
+resolution, filtre et seuil sont des reglages d'execution. TopOpt conserve les
+IDs/spans, le materiau, la revision, les analyses et la progression/annulation.
+Aucune dependance de production TopOpt vers CAD ; la CLI compose les services.
+
+Projecteur conservateur sur cellules entieres pour box/cylinder/transforms/CSG :
+cellules incertaines du domaine exclues, preserve obligatoire, keepout exclu,
+conflits refuses avec provenance. Les interfaces sont des volumes voxelises,
+charges distribuees avec poids Hex8, moments par couple de forces ; fixed et
+frictionless cartesien pris en charge. Pin et normales obliques sont refuses.
+La regression de translation commune [1,2,3] m a detecte puis fait corriger un
+faux conflit : normalisation dans le repere local avant classification, sans
+elargissement arbitraire des regions. Calcul flottant, pas predicates exacts.
+
+MaximizeStiffness utilise les budgets volume/masse et controle le deplacement de
+chaque cas binaire. Limite d'iterations, geometrie deconnectee et budget depasse
+refusent la publication. Une geometrie entierement imposee est analysee sans
+iterations OC fictives. MinimizeMass, stress, securite, frequence et fabrication
+restent explicitement indisponibles ; leur implementation reste a faire.
+
+Mesure examples/topology_manual : grille 12x4x2, filtre 12 mm, seuil .65,
+22 mises a jour ; 80/96 cellules, 80000 mm3, 216 g, 168 sommets/336 triangles.
+Deux charges opposees donnent chacune compliance 2.014606055233476e-7 J et
+deplacement maximal 0.000219890239692 mm. Decodage STL independant : aretes
+appariees/orientees, volume et bornes verifies. Les essais qui depassent le budget
+ou deconnectent la piece sont documentes, aucun seuil n'est ajuste implicitement.
+
+Validation finale : 139 tests workspace passes, cargo fmt --check et cargo clippy
+--workspace --all-targets -- -D warnings passes, git diff --check propre.
+Tests unitaires/integration/CLI couvrent aussi petits keepouts, conservation des
+forces/moments, limites, annulation et preservation du fichier de destination en
+cas d'echec. ADR-012, architecture, TECHNICAL et exemple documentent les contrats.
+.gitignore couvre deja outils, caches, logs et sorties ; aucun artefact STL ajoute.
+
+Checkpoint local autorise pour cette tranche validee, sans push ni changement de
+lane. Le ticket global reste ouvert : composition CAD/publication desktop avec
+revisions et annulation, autres objectifs/contraintes/fabrication, puis supports
+du bipede. L'export explicite concerne le noeud selectionne dans son repere local ;
+les operations aval ne sont pas appliquees. Le garde E330 Project/desktop reste
+actif. Aucun parcours UI modifie ou validation native revendique dans cette tranche.
+
+### user

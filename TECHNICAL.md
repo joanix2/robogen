@@ -545,3 +545,47 @@ revision-guarded product publication remain required; E330 is still active.
 
 Iteration 6 gates: 130 tests workspace, fmt --check and Clippy workspace
 all-targets -D warnings pass; no product UI change in this numerical slice.
+
+## Typed Topology Execution From DSL (iteration 7)
+
+TopOpt now owns a conservative CSG-to-grid projector (`geometry`/`execution`),
+reading the existing SolidGeometry/TopologySpec. It classifies whole cells for
+box/cylinder/transforms/union/compound/difference, excludes uncertain domain/void
+cells and preserves all potential preserve intersections. Resolution/conflicts
+produce diagnostics with source spans. Region trees and cell grids are bounded.
+Interfaces are voxelised volumes: fixed locks their nodes, forces use consistent
+uniform-volume nodal weights, moments use a weighted force couple. Cartesian
+frictionless is supported; pin/oblique supports are refused. ADR-012 specifies
+the approximation, coordinate frames, load distribution and regularized boundary
+semantics; this is not an exact CAD intersection or a surface-selection tool.
+
+`prepare_topology` carries source/material/revision and returns GridRequest,
+origin/domain-cell count and interface centroids. `execute_topology` requires
+convergence, reconstructs/reanalyses all cases, checks actual volume/mass and
+per-case maximum displacement, then returns ComputedTopology. Errors E340–E346
+distinguish capabilities, geometry, interface mapping, solve, constraints,
+cancellation and iteration limit. Unsupported objective/stress/frequency/safety/
+manufacturing requests are never silently dropped. CPU settings are execution
+inputs, not manual geometry inserted into the DSL. SIMP now accepts a volume
+budget up to 1; fully prescribed masks are genuinely analysed with FixedRegions
+and zero OC updates, rather than rejected merely for having no design variables.
+
+CLI `optimize-topology SOURCE NAME_OR_ID OUTPUT NX NY NZ FILTER_MM THRESHOLD`
+compiles the DSL and executes one selected node. It exports in the node's local
+frame with the grid origin restored, using the existing atomic STL exporter.
+`inspect-topology` now prints operation IDs and distinguishes declaration
+inspection from computation. CLI adds local TopOpt/domain deps; TopOpt adds DSL
+only as a test dependency. No production CAD dependency or persistent schema
+is introduced. Project/desktop E330 remains until graph publication is integrated;
+outer transforms/Booleans are not included in this explicit node export.
+
+Reproducible `.rgn`, full assumptions, measured values and negative trials:
+examples/topology_manual/README.md. Measured actual run: 22 updates, two cases,
+80,000 mm3, 216 g, 336 triangles, maximum displacement 0.000219890239692 mm per
+case. Unit/integration/CLI tests cover projection, force/torque conservation,
+limits, cancellation, capability refusal and source-to-reanalysis-to-STL.
+
+Iteration 7 gates: 139 tests workspace, fmt --check and Clippy workspace
+all-targets -D warnings pass. A common-translation regression also verifies
+unchanged cell masks after normalizing geometry into the local grid frame.
+No desktop integration or native UI validation is claimed for this CLI slice.
