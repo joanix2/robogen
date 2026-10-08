@@ -57,10 +57,18 @@ The previous executable linked to a removed VS Code Snap revision; reinstall
 with `UV_TOOL_BIN_DIR="$HOME/.local/bin" uv tool install --force graphifyy==0.9.15`
 if that link breaks again. Installing the tool does not generate a project graph.
 
-The local Rust 1.88.0 toolchain already includes Clippy and rustfmt.
+The local Rust 1.88.0 toolchain includes Clippy, rustfmt, rust-analyzer and rust-src,
+declared in `rust-toolchain.toml`.
 `.vscode/settings.json` supplies its environment to new Linux integrated
 terminals and rust-analyzer, and selects Clippy for editor checks. The official
 `rust-lang.rust-analyzer` extension is installed in the current VS Code profile.
+The workspace explicitly selects the local rustup rust-analyzer proxy through
+`rust-analyzer.server.path`. The installed extension discovers toolchains using
+the VS Code process environment, before applying `server.extraEnv`; relying on
+automatic discovery can therefore select its incompatible bundled server.
+After updating the components/settings, run **Developer: Reload Window** in the
+VS Code command palette. If a component is missing, activate the environment below
+and run `rustup component add rust-analyzer rust-src --toolchain 1.88.0`.
 For an existing or external terminal, run from the repository root:
 
 ```sh

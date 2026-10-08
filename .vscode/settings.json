@@ -4,6 +4,7 @@
         "RUSTUP_HOME": "${workspaceFolder}/.rustup-local",
         "PATH": "${workspaceFolder}/.cargo-home/bin:${env:PATH}"
     },
+    "rust-analyzer.server.path": "${workspaceFolder}/.cargo-home/bin/rust-analyzer",
     "rust-analyzer.server.extraEnv": {
         "CARGO_HOME": "${workspaceFolder}/.cargo-home",
         "RUSTUP_HOME": "${workspaceFolder}/.rustup-local",

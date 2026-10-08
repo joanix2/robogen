@@ -78,3 +78,9 @@
   Objectif global non acheve : composition CAD/desktop, minimisation masse,
   stress/securite/frequence/fabrication et supports robot. E330 reste dans le
   chemin document ; CLI exporte uniquement le noeud choisi dans son repere local.
+
+- 2026-10-08 : correctif VS Code, composant rust-analyzer 1.88.0 installe et declare
+  avec rust-src dans rust-toolchain.toml. server.path pointe le proxy local
+  .cargo-home/bin/rust-analyzer : la decouverte de l'extension utilise process.env
+  avant server.extraEnv. Handshake LSP version 1.88.0/exit 0 verifie ; recharger
+  la fenetre VS Code pour appliquer a la session ouverte. Compilateur inchange.

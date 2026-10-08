@@ -83,3 +83,8 @@ un support valide. Preservation et reanalyse mecanique restent a implementer.
 
 Validation : 139 tests workspace, fmt --check et Clippy -D warnings passes.
 Les objectifs/contraintes absents et la publication desktop restent ouverts.
+
+# Correctif outillage VS Code
+
+- [x] Declarer et installer rust-analyzer compatible avec Rust 1.88.0.
+- [x] Verifier la selection, les commandes locales et documenter le rechargement.

@@ -556,3 +556,45 @@ les operations aval ne sont pas appliquees. Le garde E330 Project/desktop reste
 actif. Aucun parcours UI modifie ou validation native revendique dans cette tranche.
 
 ### user
+
+### agent
+
+## Correctif outillage VS Code - plan et implementation
+
+La capture signale un rust-analyzer embarque incompatible avec Rust 1.88.0.
+Verification locale : rust-toolchain.toml epingle 1.88.0, seuls clippy/rustfmt sont
+declares ; le composant rust-analyzer manque effectivement. Les environnements
+terminal et serveur sont deja configures vers les outils locaux ignores.
+Plan autorise par le depannage : declarer/installer le composant correspondant
+a la toolchain, verifier la selection par l'extension et les commandes, documenter
+le rechargement VS Code. Ne pas mettre a niveau le compilateur pour ce correctif.
+
+### user
+
+
+### agent
+
+## Correctif outillage VS Code - resultat
+
+rust-toolchain.toml declare maintenant rust-analyzer et rust-src. Le composant
+officiel 1.88.0 est installe localement ; rust-src etait deja present.
+Le premier telechargement etait bloque par le DNS du sandbox ; le telechargement
+avec acces reseau autorise a reussi. Aucun binaire/outillage local n'est versionne.
+
+Inspection du code de l'extension installee 0.3.3073 : la recherche rustup utilise
+process.env avant server.extraEnv. Le fichier .vscode/settings.json selectionne
+donc explicitement ${workspaceFolder}/.cargo-home/bin/rust-analyzer ; son
+environnement existant conserve la bonne toolchain locale. Rust reste en 1.88.0.
+
+Verification : rust-analyzer --version = 1.88.0 (6b00bc3 2025-06-23), composants
+installes confirmes, demarrage du serveur avec chemin/environnement resolus depuis
+les settings, handshake LSP initialize et shutdown/exit reussis (code 0).
+cargo fmt --check et git diff --check passent. Sources produit inchangees : les
+139 tests de la tranche precedente ne sont pas reexecutes pour ce correctif de
+configuration. TECHNICAL explique le choix du serveur et le rechargement.
+
+Action restante dans l'editeur ouvert : fermer l'alerte puis executer Developer:
+Reload Window depuis Ctrl+Shift+P. Le handshake est verifie ; disparition visuelle
+de l'alerte apres rechargement non observee ici. Commit local autorise, sans push.
+
+### user
