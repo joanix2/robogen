@@ -64,3 +64,11 @@ un support valide. Preservation et reanalyse mecanique restent a implementer.
 - [x] Extraire une frontiere voxel exacte et verifier fermeture/volume/interfaces.
 - [x] Reanalyser la geometrie binaire avec cellules vides absentes ; refuser charges/appuis perdus et fragments.
 - [x] Executer benchmark/regressions/gates et documenter les mesures sans cloturer l'objectif global.
+
+# Iteration 6 - FEM et SIMP a conditions explicites et cas multiples
+
+- [x] Extraire le modele Hex8 general, IDs nodaux et appuis/charges explicites ; conserver adaptateur poutre.
+- [x] Generaliser SIMP aux cas identifies, somme des compliances/derivees et analyses individuelles.
+- [x] Reanalyser chaque cas sur le solide binaire ; verifier absence de vide porteur, appuis/charges et cancellation.
+- [x] Tester configurations non-X, forces opposees, sensibilites multi-cas et regressions poutre/STL.
+- [x] Documenter contrats/hypotheses, verifier gates et committer la tranche sans clore le systeme complet.

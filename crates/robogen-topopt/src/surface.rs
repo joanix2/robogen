@@ -402,6 +402,93 @@ impl BeamOptimization {
     }
 }
 
+/// Mechanically reanalysed binary geometry with one response per load case.
+#[derive(Debug)]
+pub struct GridSolid {
+    pub request: crate::simp::GridRequest,
+    pub solver_backend: String,
+    pub surface: ReconstructedSurface,
+    pub analyses: Vec<crate::simp::CaseAnalysis>,
+    pub volume_fraction: f64,
+    pub within_volume_budget: bool,
+}
+
+#[derive(Debug, Error)]
+pub enum GridSolidError {
+    #[error(transparent)]
+    Surface(#[from] SurfaceError),
+    #[error(transparent)]
+    Solve(#[from] crate::simp::SimpError),
+    #[error("Density field violates preserved/void regions")]
+    Regions,
+}
+
+impl crate::simp::GridOptimization {
+    pub fn reconstruct_solid(
+        &self,
+        threshold: f64,
+        solver: &dyn crate::linear::SparseLinearSolver,
+        cancelled: &dyn Fn() -> bool,
+        progress: &mut dyn FnMut(robogen_domain::LoadCaseId),
+    ) -> Result<GridSolid, GridSolidError> {
+        use crate::simp::{CaseAnalysis, CellRegion, SimpError, validate_cases};
+        let grid = DensityGrid {
+            dimensions: self.request.grid.dimensions,
+            cells: self.request.grid.cells,
+            densities: &self.densities,
+        };
+        validate_grid(&grid, threshold, cancelled)?;
+        validate_cases(&self.request.load_cases)?;
+        if !self.request.regions.is_empty()
+            && (self.request.regions.len() != self.densities.len()
+                || self
+                    .request
+                    .regions
+                    .iter()
+                    .zip(&self.densities)
+                    .any(|(role, rho)| match role {
+                        CellRegion::Design => false,
+                        CellRegion::Preserve => *rho != 1.0,
+                        CellRegion::Void => *rho != 0.0,
+                    }))
+        {
+            return Err(GridSolidError::Regions);
+        }
+        let solid: Vec<_> = self.densities.iter().map(|rho| *rho >= threshold).collect();
+        let model =
+            crate::fem::GridModel::new(self.request.grid.clone()).map_err(SimpError::from)?;
+        let mut analyses = Vec::new();
+        for case in &self.request.load_cases {
+            let analysis = model
+                .solve_solid_mask(&solid, &case.boundary, solver, cancelled)
+                .map_err(|source| SimpError::Case {
+                    id: case.id,
+                    span: case.span,
+                    source,
+                })?;
+            analyses.push(CaseAnalysis {
+                id: case.id,
+                span: case.span,
+                analysis,
+            });
+            progress(case.id);
+            if cancelled() {
+                return Err(SimpError::Fem(crate::fem::FemError::Cancelled).into());
+            }
+        }
+        let surface = VoxelBoundaryReconstructor.reconstruct(&grid, threshold, cancelled)?;
+        let volume_fraction = solid.iter().filter(|v| **v).count() as f64 / solid.len() as f64;
+        Ok(GridSolid {
+            request: self.request.clone(),
+            solver_backend: solver.backend_id().to_owned(),
+            surface,
+            analyses,
+            volume_fraction,
+            within_volume_budget: volume_fraction <= self.request.options.volume_fraction + 1e-10,
+        })
+    }
+}
+
 fn validate_mesh(
     vertices: &[[Length; 3]],
     triangles: &[[u32; 3]],

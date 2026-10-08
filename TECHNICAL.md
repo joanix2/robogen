@@ -517,3 +517,31 @@ nor the validation machinery guarantees arbitrary constraints are feasible.
 124 workspace tests/fmt/Clippy pass. Full reproduction and trial limitations:
 examples/topopt_beam/README.md. No new UI route is delivered in this slice;
 TopologySpec/desktop publication stays unavailable pending its real adapter.
+
+## General Hex8 And Multi-Case SIMP (iteration 6)
+
+`GridModel`/`GridDefinition` replace beam-specific FEM assembly. BoundaryConditions
+carries revision-local NodeId, per-axis translation locks and typed nodal forces.
+Rigid-mode rank, input/resource, residual/energy and binary connectivity/interface
+checks apply. Loads on constrained components are rejected explicitly. BeamModel
+is the reference-problem adapter and exposes its GridDefinition/boundary conditions;
+FemResult wraps GridResult and preserves convenient access to existing quantities.
+
+`GridRequest`/`optimize_grid` support 1..16 independently solved cases carrying
+LoadCaseId and source span. Shared-density OC minimizes summed compliance, with
+summed derivatives; force vectors are never merged across cases. Per-case metrics
+and analyses survive in the result, and errors retain the offending ID/span.
+`optimize_beam` now delegates to this same implementation. `GridSolid` reanalyses
+every case on exact binary cells, tracks completed-case progress and cancels
+without publishing partial analyses. DTOs remain TopOpt-owned, nonpersistent,
+with no third-party or CAD/UI dependencies.
+
+Regression evidence and reproduction: examples/topopt_beam/README.md and
+crates/robogen-topopt/tests/grid.rs. The general-grid patch test checks traction
+along X/Y/Z using directional supports; multi-case finite differences use distinct
+support sets and load directions. Opposed loads remain two nonzero responses.
+The actual DSL geometry/interface projector, per-case constraint enforcement and
+revision-guarded product publication remain required; E330 is still active.
+
+Iteration 6 gates: 130 tests workspace, fmt --check and Clippy workspace
+all-targets -D warnings pass; no product UI change in this numerical slice.

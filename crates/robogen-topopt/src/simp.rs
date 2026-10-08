@@ -1,8 +1,11 @@
-use robogen_domain::Length;
+use robogen_domain::{Length, LoadCaseId, SourceSpan};
 use thiserror::Error;
 
 use crate::{
-    fem::{Beam, BeamModel, Compliance, FemError, FemResult},
+    fem::{
+        Beam, BeamModel, BoundaryConditions, Compliance, FemError, FemResult, GridDefinition,
+        GridModel, GridResult,
+    },
     linear::SparseLinearSolver,
 };
 
@@ -37,6 +40,55 @@ pub struct BeamRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct GridLoadCase {
+    pub id: LoadCaseId,
+    pub span: SourceSpan,
+    pub boundary: BoundaryConditions,
+}
+
+#[derive(Debug, Clone)]
+pub struct GridRequest {
+    pub grid: GridDefinition,
+    pub load_cases: Vec<GridLoadCase>,
+    pub options: SimpOptions,
+    pub regions: Vec<CellRegion>,
+    pub document_revision: u64,
+}
+
+#[derive(Debug)]
+pub struct CaseAnalysis {
+    pub id: LoadCaseId,
+    pub span: SourceSpan,
+    pub analysis: GridResult,
+}
+
+#[derive(Debug, Clone)]
+pub struct CaseMetrics {
+    pub id: LoadCaseId,
+    pub compliance: Compliance,
+    pub relative_residual: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct GridIteration {
+    /// Compliance is summed; residual is the maximum across cases.
+    pub aggregate: Iteration,
+    pub cases: Vec<CaseMetrics>,
+}
+
+#[derive(Debug)]
+pub struct GridOptimization {
+    pub request: GridRequest,
+    pub solver_backend: String,
+    pub densities: Vec<f64>,
+    pub design_variables: Vec<f64>,
+    pub uniform_reference: Compliance,
+    pub analyses: Vec<CaseAnalysis>,
+    pub history: Vec<GridIteration>,
+    pub stop_reason: StopReason,
+}
+
+#[derive(Debug, Clone)]
 pub struct Iteration {
     pub number: usize,
     pub compliance: Compliance,
@@ -67,6 +119,14 @@ pub struct BeamOptimization {
 pub enum SimpError {
     #[error("Invalid SIMP settings")]
     InvalidOptions,
+    #[error("Expected 1..16 load cases with unique IDs")]
+    InvalidCases,
+    #[error("Load case {id} failed: {source}")]
+    Case {
+        id: LoadCaseId,
+        span: SourceSpan,
+        source: FemError,
+    },
     #[error("Volume target is incompatible with preserved/void regions")]
     InfeasibleVolume,
     #[error("SIMP requires at least one design cell; use binary FEM for a fully fixed mask")]
@@ -83,14 +143,120 @@ pub fn optimize_beam(
     cancelled: &dyn Fn() -> bool,
     progress: &mut dyn FnMut(&Iteration),
 ) -> Result<BeamOptimization, SimpError> {
+    validate_options(&request.options)?;
+    if cancelled() {
+        return Err(FemError::Cancelled.into());
+    }
+    let model = BeamModel::new(request.beam.clone())?;
+    let generic = GridRequest {
+        grid: model.grid_definition().clone(),
+        load_cases: vec![GridLoadCase {
+            id: LoadCaseId::from_name("robogen.benchmark.beam"),
+            span: SourceSpan::default(),
+            boundary: model.boundary_conditions().clone(),
+        }],
+        options: request.options.clone(),
+        regions: request.regions.clone(),
+        document_revision: request.document_revision,
+    };
+    let mut result = optimize_grid(&generic, solver, cancelled, &mut |entry| {
+        progress(&entry.aggregate)
+    })
+    .map_err(|error| match error {
+        SimpError::Case { source, .. } => SimpError::Fem(source),
+        other => other,
+    })?;
+    let case = result.analyses.pop().ok_or(SimpError::InvalidCases)?;
+    Ok(BeamOptimization {
+        request: request.clone(),
+        solver_backend: result.solver_backend,
+        densities: result.densities,
+        design_variables: result.design_variables,
+        uniform_reference: result.uniform_reference,
+        analysis: model.with_tip(case.analysis),
+        history: result
+            .history
+            .into_iter()
+            .map(|entry| entry.aggregate)
+            .collect(),
+        stop_reason: result.stop_reason,
+    })
+}
+
+pub(crate) fn validate_cases(cases: &[GridLoadCase]) -> Result<(), SimpError> {
+    if cases.is_empty()
+        || cases.len() > 16
+        || cases
+            .iter()
+            .map(|case| case.id)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != cases.len()
+    {
+        return Err(SimpError::InvalidCases);
+    }
+    Ok(())
+}
+
+fn solve_cases(
+    model: &GridModel,
+    request: &GridRequest,
+    densities: &[f64],
+    solver: &dyn SparseLinearSolver,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Vec<CaseAnalysis>, SimpError> {
+    let analyses: Vec<CaseAnalysis> = request
+        .load_cases
+        .iter()
+        .map(|case| {
+            if cancelled() {
+                return Err(FemError::Cancelled.into());
+            }
+            let analysis = model
+                .solve(
+                    densities,
+                    request.options.penalty,
+                    request.options.stiffness_floor,
+                    &case.boundary,
+                    solver,
+                    cancelled,
+                )
+                .map_err(|source| SimpError::Case {
+                    id: case.id,
+                    span: case.span,
+                    source,
+                })?;
+            Ok(CaseAnalysis {
+                id: case.id,
+                span: case.span,
+                analysis,
+            })
+        })
+        .collect::<Result<_, SimpError>>()?;
+    if !Compliance::sum(analyses.iter().map(|case| case.analysis.compliance))
+        .joules()
+        .is_finite()
+    {
+        return Err(SimpError::Update);
+    }
+    Ok(analyses)
+}
+
+pub fn optimize_grid(
+    request: &GridRequest,
+    solver: &dyn SparseLinearSolver,
+    cancelled: &dyn Fn() -> bool,
+    progress: &mut dyn FnMut(&GridIteration),
+) -> Result<GridOptimization, SimpError> {
     let options = &request.options;
     validate_options(options)?;
     if cancelled() {
         return Err(FemError::Cancelled.into());
     }
-    let model = BeamModel::new(request.beam.clone())?;
+    validate_cases(&request.load_cases)?;
+    let model = GridModel::new(request.grid.clone())?;
     let filter = DensityFilter::new(
-        model.beam(),
+        model.definition(),
         options.filter_radius,
         &request.regions,
         cancelled,
@@ -123,15 +289,9 @@ pub fn optimize_beam(
         })
         .collect();
     let mut densities = filter.apply(&design);
-    let mut analysis = model.solve(
-        &densities,
-        options.penalty,
-        options.stiffness_floor,
-        solver,
-        cancelled,
-    )?;
-    let uniform_reference = analysis.compliance;
-    let mut history = vec![iteration(0, &analysis, &densities, 0.0)];
+    let mut analyses = solve_cases(&model, request, &densities, solver, cancelled)?;
+    let uniform_reference = Compliance::sum(analyses.iter().map(|case| case.analysis.compliance));
+    let mut history = vec![grid_iteration(0, &analyses, &densities, 0.0)];
     progress(&history[0]);
     let mut stop_reason = StopReason::IterationLimit;
     let volume_derivative = filter.transpose(&vec![1.0 / design.len() as f64; design.len()]);
@@ -139,7 +299,7 @@ pub fn optimize_beam(
         if cancelled() {
             return Err(FemError::Cancelled.into());
         }
-        let sensitivities = sensitivities(&filter, &analysis, &densities, options);
+        let sensitivities = combined_sensitivities(&filter, &analyses, &densities, options);
         let next = oc_update(
             &design,
             &sensitivities,
@@ -154,15 +314,9 @@ pub fn optimize_beam(
             .map(|(old, new)| (old - new).abs())
             .fold(0.0, f64::max);
         densities = filter.apply(&next);
-        analysis = model.solve(
-            &densities,
-            options.penalty,
-            options.stiffness_floor,
-            solver,
-            cancelled,
-        )?;
+        analyses = solve_cases(&model, request, &densities, solver, cancelled)?;
         design = next;
-        history.push(iteration(number, &analysis, &densities, max_change));
+        history.push(grid_iteration(number, &analyses, &densities, max_change));
         progress(&history[history.len() - 1]);
         if cancelled() {
             return Err(FemError::Cancelled.into());
@@ -172,13 +326,13 @@ pub fn optimize_beam(
             break;
         }
     }
-    Ok(BeamOptimization {
+    Ok(GridOptimization {
         request: request.clone(),
         solver_backend: solver.backend_id().to_owned(),
         densities,
         design_variables: design,
         uniform_reference,
-        analysis,
+        analyses,
         history,
         stop_reason,
     })
@@ -205,19 +359,51 @@ fn validate_options(options: &SimpOptions) -> Result<(), SimpError> {
     Ok(())
 }
 
-fn iteration(
+fn grid_iteration(
     number: usize,
-    analysis: &FemResult,
+    analyses: &[CaseAnalysis],
     densities: &[f64],
     max_design_change: f64,
-) -> Iteration {
-    Iteration {
-        number,
-        compliance: analysis.compliance,
-        volume_fraction: mean(densities),
-        max_design_change,
-        relative_residual: analysis.relative_residual,
+) -> GridIteration {
+    GridIteration {
+        aggregate: Iteration {
+            number,
+            compliance: Compliance::sum(analyses.iter().map(|case| case.analysis.compliance)),
+            volume_fraction: mean(densities),
+            max_design_change,
+            relative_residual: analyses
+                .iter()
+                .map(|case| case.analysis.relative_residual)
+                .fold(0.0, f64::max),
+        },
+        cases: analyses
+            .iter()
+            .map(|case| CaseMetrics {
+                id: case.id,
+                compliance: case.analysis.compliance,
+                relative_residual: case.analysis.relative_residual,
+            })
+            .collect(),
     }
+}
+
+fn combined_sensitivities(
+    filter: &DensityFilter,
+    analyses: &[CaseAnalysis],
+    densities: &[f64],
+    options: &SimpOptions,
+) -> Vec<f64> {
+    let mut combined = vec![0.0; densities.len()];
+    for case in analyses {
+        for (total, partial) in
+            combined
+                .iter_mut()
+                .zip(sensitivities(filter, &case.analysis, densities, options))
+        {
+            *total += partial;
+        }
+    }
+    combined
 }
 
 fn mean(values: &[f64]) -> f64 {
@@ -226,7 +412,7 @@ fn mean(values: &[f64]) -> f64 {
 
 fn sensitivities(
     filter: &DensityFilter,
-    analysis: &FemResult,
+    analysis: &GridResult,
     densities: &[f64],
     options: &SimpOptions,
 ) -> Vec<f64> {
@@ -331,7 +517,7 @@ struct DensityFilter {
 
 impl DensityFilter {
     fn new(
-        beam: &Beam,
+        beam: &GridDefinition,
         radius: Length,
         regions: &[CellRegion],
         cancelled: &dyn Fn() -> bool,
@@ -447,14 +633,146 @@ mod tests {
         }
     }
 
+    fn multi_request() -> Result<GridRequest, SimpError> {
+        let mut original = request();
+        original.beam.cells = [4, 2, 1];
+        original.options.max_iterations = 4;
+        let model = BeamModel::new(original.beam)?;
+        let mut other = model.boundary_conditions().clone();
+        for load in &mut other.forces {
+            load.force = load.force.map(|f| Force::from_newtons(-f.newtons()));
+        }
+        Ok(GridRequest {
+            grid: model.grid_definition().clone(),
+            options: original.options,
+            regions: Vec::new(),
+            document_revision: 71,
+            load_cases: vec![
+                GridLoadCase {
+                    id: LoadCaseId::from_name("down"),
+                    span: SourceSpan::new(10, 20),
+                    boundary: model.boundary_conditions().clone(),
+                },
+                GridLoadCase {
+                    id: LoadCaseId::from_name("up"),
+                    span: SourceSpan::new(30, 40),
+                    boundary: other,
+                },
+            ],
+        })
+    }
+
+    #[test]
+    fn opposing_load_cases_are_not_cancelled_and_preserve_individual_results()
+    -> Result<(), SimpError> {
+        let request = multi_request()?;
+        let result = optimize_grid(&request, &FaerSolver, &|| false, &mut |_| {})?;
+        let mut single = request.clone();
+        single.load_cases.pop();
+        let reference = optimize_grid(&single, &FaerSolver, &|| false, &mut |_| {})?;
+        assert_eq!(result.analyses.len(), 2);
+        assert_eq!(result.request.document_revision, 71);
+        for (a, b) in result.densities.iter().zip(reference.densities) {
+            assert!((a - b).abs() < 1e-10);
+        }
+        for entry in &result.history {
+            assert_eq!(entry.cases.len(), 2);
+            assert!(
+                (entry.aggregate.compliance.joules() / entry.cases[0].compliance.joules() - 2.0)
+                    .abs()
+                    < 1e-10
+            );
+        }
+        for (down, up) in result.analyses[0]
+            .analysis
+            .displacements
+            .iter()
+            .zip(&result.analyses[1].analysis.displacements)
+        {
+            for axis in 0..3 {
+                assert!((down[axis].metres() + up[axis].metres()).abs() < 1e-14);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn multi_case_gradient_matches_finite_differences() -> Result<(), SimpError> {
+        let mut request = multi_request()?;
+        let end_offset =
+            request.grid.cells[0] * (request.grid.cells[1] + 1) * (request.grid.cells[2] + 1);
+        for constraint in &mut request.load_cases[1].boundary.constraints {
+            constraint.node.0 += end_offset;
+        }
+        for load in &mut request.load_cases[1].boundary.forces {
+            load.node.0 -= end_offset;
+        }
+        for load in &mut request.load_cases[1].boundary.forces {
+            load.force = [
+                load.force[2],
+                Force::from_newtons(0.0),
+                Force::from_newtons(0.0),
+            ];
+        }
+        let model = GridModel::new(request.grid.clone())?;
+        let filter =
+            DensityFilter::new(&request.grid, request.options.filter_radius, &[], &|| false)?;
+        let design = vec![0.55; 8];
+        let evaluate =
+            |x: &[f64]| solve_cases(&model, &request, &filter.apply(x), &FaerSolver, &|| false);
+        let analyses = evaluate(&design)?;
+        let gradient =
+            combined_sensitivities(&filter, &analyses, &filter.apply(&design), &request.options);
+        for i in 0..8 {
+            let mut plus = design.clone();
+            plus[i] += 1e-5;
+            let mut minus = design.clone();
+            minus[i] -= 1e-5;
+            let objective = |cases: Vec<CaseAnalysis>| {
+                Compliance::sum(cases.iter().map(|c| c.analysis.compliance)).joules()
+            };
+            let numerical = (objective(evaluate(&plus)?) - objective(evaluate(&minus)?)) / 2e-5;
+            assert!((numerical / gradient[i] - 1.0).abs() < 1e-5);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_case_and_cancellation_never_return_partial_results() -> Result<(), SimpError> {
+        let mut request = multi_request()?;
+        request.load_cases[1].boundary.constraints.truncate(1);
+        assert!(
+            matches!(optimize_grid(&request,&FaerSolver,&||false,&mut |_|{}),Err(SimpError::Case {id,span,source:FemError::RigidModes}) if id==request.load_cases[1].id && span==request.load_cases[1].span)
+        );
+        request = multi_request()?;
+        request.load_cases[1].id = request.load_cases[0].id;
+        assert!(matches!(
+            optimize_grid(&request, &FaerSolver, &|| false, &mut |_| {}),
+            Err(SimpError::InvalidCases)
+        ));
+        request = multi_request()?;
+        let cancelled = std::cell::Cell::new(false);
+        assert!(matches!(
+            optimize_grid(&request, &FaerSolver, &|| cancelled.get(), &mut |_| {
+                cancelled.set(true)
+            }),
+            Err(SimpError::Fem(FemError::Cancelled))
+        ));
+        Ok(())
+    }
+
     #[test]
     fn filtered_sensitivities_match_finite_differences() -> Result<(), SimpError> {
         let mut request = request();
         request.beam.cells = [3, 2, 1];
         request.options.filter_radius = Length::from_metres(0.05);
         let model = BeamModel::new(request.beam.clone())?;
-        let filter =
-            DensityFilter::new(&request.beam, request.options.filter_radius, &[], &|| false)?;
+        let filter = DensityFilter::new(
+            model.grid_definition(),
+            request.options.filter_radius,
+            &[],
+            &|| false,
+        )?;
         let design = vec![0.4, 0.5, 0.6, 0.45, 0.55, 0.65];
         let evaluate = |variables: &[f64]| {
             model.solve(&filter.apply(variables), 3.0, 1e-6, &FaerSolver, &|| false)
@@ -495,13 +813,22 @@ mod tests {
             CellRegion::Preserve,
             CellRegion::Preserve,
         ];
-        let filter =
-            DensityFilter::new(&request.beam, Length::from_metres(0.05), &roles, &|| false)?;
+        let filter = DensityFilter::new(
+            BeamModel::new(request.beam.clone())?.grid_definition(),
+            Length::from_metres(0.05),
+            &roles,
+            &|| false,
+        )?;
         let model = BeamModel::new(request.beam.clone())?;
         let design = vec![0.6; 8];
         let evaluate = |x: &[f64]| model.solve(&filter.apply(x), 3.0, 1e-6, &FaerSolver, &|| false);
         let densities = filter.apply(&design);
-        let analytic = sensitivities(&filter, &evaluate(&design)?, &densities, &request.options);
+        let analytic = sensitivities(
+            &filter,
+            &evaluate(&design)?.grid,
+            &densities,
+            &request.options,
+        );
         let dv = filter.transpose(&[0.125; 8]);
         for i in 0..8 {
             let mut plus = design.clone();

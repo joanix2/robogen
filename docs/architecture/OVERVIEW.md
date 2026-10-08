@@ -218,3 +218,15 @@ sans maillage mais aucun domaine n'est transforme en faux support. CAD refuse
 les noeuds non resolus, et Project bloque publication/export avec provenance.
 L'implementation numerique, la reconstruction, les contraintes geometriques et
 la revalidation restent M7/M8 ; ce contrat ne constitue pas leur livraison.
+
+## Extension numerique verifiee (2026-10-08, iterations 5-6)
+
+TopOpt possede desormais un coeur GridModel Hex8 a appuis/charges nodaux explicites,
+SIMP multi-cas avec analyses et provenance par cas, masques Design/Preserve/Void,
+frontiere voxel exacte et reanalyse sans rigidite artificielle du vide. BeamModel
+et optimize_beam sont des adaptateurs de benchmark sur ce coeur. Aucun nouveau
+couplage entre crates n'est ajoute. Les conditions geometriques d'interface DSL
+ne sont pas encore projetees vers les NodeId revision-locaux ; cette projection
+et la publication sont les etages suivants. Voir ADR-008 et le README benchmark
+pour limites, budget et cas revalide ; les anciennes mesures de Surface Nets
+ci-dessus restent des constats du preview lisse distinct.

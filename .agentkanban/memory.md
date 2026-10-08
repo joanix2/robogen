@@ -59,3 +59,11 @@
   Seuil .5 depasse budget, .75 deconnecte : refus testes. Aucun ajustement cache,
   aucune garantie generale ni certification. Objectif global actif, DSL/desktop
   E330 toujours en attente d'adaptateur TopologySpec, contraintes et publication.
+
+- 2026-10-08 : ticket 15 iteration 6 generalise le coeur FEM GridModel et SIMP
+  a 1..16 cas identifies (appuis/forces distincts, somme compliance/derivees,
+  analyses individuelles). BeamModel/optimize_beam sont des adaptateurs, pas un
+  second solveur. Reanalyse binaire tous cas/progression/annulation ; controle
+  des modes rigides. 130 tests/fmt/Clippy passes, integration charges opposees
+  jusqu'au STL. Projecteur geometries/interfaces DSL et publication encore
+  absents : objectif global actif, E330 conserve, aucun support robot revendique.

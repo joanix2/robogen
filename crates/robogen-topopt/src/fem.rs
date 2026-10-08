@@ -1,7 +1,6 @@
+use crate::linear::{DofId, LinearError, MatrixEntry, SparseLinearSolver, SymmetricSystem};
 use robogen_domain::{Force, Length, Pressure};
 use thiserror::Error;
-
-use crate::linear::{DofId, LinearError, MatrixEntry, SparseLinearSolver, SymmetricSystem};
 
 #[derive(Debug, Clone)]
 pub struct Beam {
@@ -12,32 +11,79 @@ pub struct Beam {
     pub end_force: [Force; 3],
 }
 
+#[derive(Debug, Clone)]
+pub struct GridDefinition {
+    pub dimensions: [Length; 3],
+    pub cells: [usize; 3],
+    pub young_modulus: Pressure,
+    pub poisson_ratio: f64,
+}
+
+/// Revision-local node index, X slowest and Z fastest; never persist this ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NodeId(pub usize);
+
+#[derive(Debug, Clone)]
+pub struct NodeConstraint {
+    pub node: NodeId,
+    pub fixed: [bool; 3],
+}
+
+#[derive(Debug, Clone)]
+pub struct NodalForce {
+    pub node: NodeId,
+    pub force: [Force; 3],
+}
+
+#[derive(Debug, Clone)]
+pub struct BoundaryConditions {
+    pub constraints: Vec<NodeConstraint>,
+    pub forces: Vec<NodalForce>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Compliance(f64);
-
 impl Compliance {
     pub fn joules(self) -> f64 {
         self.0
     }
+    pub(crate) fn sum(values: impl Iterator<Item = Self>) -> Self {
+        Self(values.map(|c| c.0).sum())
+    }
+}
+
+#[derive(Debug)]
+pub struct GridResult {
+    /// Grid nodes; absent nodes are zero placeholders, not solved DOFs.
+    pub displacements: Vec<[Length; 3]>,
+    pub compliance: Compliance,
+    pub relative_residual: f64,
+    pub(crate) element_energies: Vec<f64>,
 }
 
 #[derive(Debug)]
 pub struct FemResult {
-    /// Grid nodes; absent nodes in a solid-mask analysis are zero placeholders.
-    pub displacements: Vec<[Length; 3]>,
-    pub compliance: Compliance,
-    pub relative_residual: f64,
+    pub grid: GridResult,
     pub mean_tip_displacement: [Length; 3],
-    pub(crate) element_energies: Vec<f64>,
+}
+impl std::ops::Deref for FemResult {
+    type Target = GridResult;
+    fn deref(&self) -> &Self::Target {
+        &self.grid
+    }
 }
 
 #[derive(Debug, Error)]
 pub enum FemError {
-    #[error("Invalid beam, density, interpolation or resource budget")]
+    #[error("Invalid grid, density, interpolation or resource budget")]
     InvalidInput,
-    #[error("Solid mask removes a clamped or loaded interface cell")]
+    #[error("Invalid boundary conditions, zero net load or load on a constrained DOF")]
+    Boundary,
+    #[error("Boundary conditions leave unconstrained rigid-body modes")]
+    RigidModes,
+    #[error("Solid mask removes a clamped or loaded interface")]
     MissingInterface,
-    #[error("Solid mask is not connected through cell faces to the clamp")]
+    #[error("Solid mask is not connected through cell faces")]
     Disconnected,
     #[error("Computation cancelled")]
     Cancelled,
@@ -47,85 +93,77 @@ pub enum FemError {
     Energy,
 }
 
-pub struct BeamModel {
-    beam: Beam,
+pub struct GridModel {
+    definition: GridDefinition,
     stiffness: [[f64; 24]; 24],
     elements: Vec<[usize; 8]>,
-    rhs: Vec<f64>,
-    fixed_nodes: usize,
     node_count: usize,
 }
 
-impl BeamModel {
-    pub fn new(beam: Beam) -> Result<Self, FemError> {
-        let cells = beam.cells;
-        if cells.iter().any(|count| *count == 0 || *count > 64)
+impl GridModel {
+    pub fn new(definition: GridDefinition) -> Result<Self, FemError> {
+        let cells = definition.cells;
+        if cells.iter().any(|n| *n == 0 || *n > 64)
             || cells.iter().product::<usize>() > 2048
-            || beam
+            || definition
                 .dimensions
                 .iter()
-                .any(|length| !length.metres().is_finite() || length.metres() <= 0.0)
-            || !beam.young_modulus.pascals().is_finite()
-            || beam.young_modulus.pascals() <= 0.0
-            || !beam.poisson_ratio.is_finite()
-            || !(-0.99..0.49).contains(&beam.poisson_ratio)
-            || beam
-                .end_force
-                .iter()
-                .any(|force| !force.newtons().is_finite())
-            || beam.end_force.iter().all(|force| force.newtons() == 0.0)
+                .any(|l| !l.metres().is_finite() || l.metres() <= 0.0)
+            || !definition.young_modulus.pascals().is_finite()
+            || definition.young_modulus.pascals() <= 0.0
+            || !definition.poisson_ratio.is_finite()
+            || !(-0.99..0.49).contains(&definition.poisson_ratio)
         {
             return Err(FemError::InvalidInput);
         }
-        let fixed_nodes = (cells[1] + 1) * (cells[2] + 1);
-        let node_count = (cells[0] + 1) * fixed_nodes;
-        if (node_count - fixed_nodes) * 3 > 8000 {
-            return Err(FemError::InvalidInput);
-        }
-        let spacing =
-            std::array::from_fn(|axis| beam.dimensions[axis].metres() / cells[axis] as f64);
-        let stiffness = hex_stiffness(spacing, beam.young_modulus.pascals(), beam.poisson_ratio);
-        if stiffness.iter().flatten().any(|value| !value.is_finite()) {
+        let node_count = cells.iter().map(|n| n + 1).product();
+        let spacing = std::array::from_fn(|a| definition.dimensions[a].metres() / cells[a] as f64);
+        let stiffness = hex_stiffness(
+            spacing,
+            definition.young_modulus.pascals(),
+            definition.poisson_ratio,
+        );
+        if stiffness.iter().flatten().any(|v| !v.is_finite()) {
             return Err(FemError::InvalidInput);
         }
         let mut elements = Vec::new();
-        for axial in 0..cells[0] {
-            for lateral in 0..cells[1] {
-                for vertical in 0..cells[2] {
+        for x in 0..cells[0] {
+            for y in 0..cells[1] {
+                for z in 0..cells[2] {
                     elements.push(std::array::from_fn(|corner| {
-                        ((axial + (corner & 1)) * (cells[1] + 1) + lateral + ((corner >> 1) & 1))
+                        ((x + (corner & 1)) * (cells[1] + 1) + y + ((corner >> 1) & 1))
                             * (cells[2] + 1)
-                            + vertical
+                            + z
                             + ((corner >> 2) & 1)
                     }));
                 }
             }
         }
-        let mut rhs = vec![0.0; (node_count - fixed_nodes) * 3];
-        for lateral in 0..=cells[1] {
-            for vertical in 0..=cells[2] {
-                let node = cells[0] * fixed_nodes + lateral * (cells[2] + 1) + vertical;
-                let weight = face_weight(lateral, cells[1]) * face_weight(vertical, cells[2]);
-                for axis in 0..3 {
-                    rhs[3 * (node - fixed_nodes) + axis] = beam.end_force[axis].newtons() * weight;
-                }
-            }
-        }
         Ok(Self {
-            beam,
+            definition,
             stiffness,
             elements,
-            rhs,
-            fixed_nodes,
             node_count,
         })
     }
-
-    pub fn beam(&self) -> &Beam {
-        &self.beam
+    pub fn definition(&self) -> &GridDefinition {
+        &self.definition
     }
     pub fn element_count(&self) -> usize {
         self.elements.len()
+    }
+    pub fn node_count(&self) -> usize {
+        self.node_count
+    }
+    pub fn node_id(&self, position: [usize; 3]) -> Option<NodeId> {
+        if (0..3).any(|a| position[a] > self.definition.cells[a]) {
+            return None;
+        }
+        Some(NodeId(
+            (position[0] * (self.definition.cells[1] + 1) + position[1])
+                * (self.definition.cells[2] + 1)
+                + position[2],
+        ))
     }
 
     pub fn solve(
@@ -133,13 +171,14 @@ impl BeamModel {
         densities: &[f64],
         penalty: f64,
         stiffness_floor: f64,
+        boundary: &BoundaryConditions,
         solver: &dyn SparseLinearSolver,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<FemResult, FemError> {
-        if densities.len() != self.elements.len()
+    ) -> Result<GridResult, FemError> {
+        if densities.len() != self.element_count()
             || densities
                 .iter()
-                .any(|density| !density.is_finite() || !(0.0..=1.0).contains(density))
+                .any(|r| !r.is_finite() || !(0.0..=1.0).contains(r))
             || !penalty.is_finite()
             || !(1.0..=5.0).contains(&penalty)
             || !stiffness_floor.is_finite()
@@ -149,71 +188,64 @@ impl BeamModel {
         }
         let scales: Vec<_> = densities
             .iter()
-            .map(|density| stiffness_floor + (1.0 - stiffness_floor) * density.powf(penalty))
+            .map(|r| stiffness_floor + (1.0 - stiffness_floor) * r.powf(penalty))
             .collect();
-        self.solve_scales(&scales, solver, cancelled)
+        self.solve_scales(&scales, boundary, solver, cancelled)
     }
 
-    /// Reanalyse the exact union of solid Hex8 cells. Void cells and unused
-    /// degrees of freedom are absent, with no SIMP stiffness floor.
-    /// The beam's complete clamp and loaded end faces must remain present.
     pub fn solve_solid_mask(
         &self,
         solid: &[bool],
+        boundary: &BoundaryConditions,
         solver: &dyn SparseLinearSolver,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<FemResult, FemError> {
+    ) -> Result<GridResult, FemError> {
         if cancelled() {
             return Err(FemError::Cancelled);
         }
         if solid.len() != self.element_count() {
             return Err(FemError::InvalidInput);
         }
-        let [nx, ny, nz] = self.beam.cells;
-        let layer = ny * nz;
-        if solid[..layer]
-            .iter()
-            .chain(&solid[(nx - 1) * layer..])
-            .any(|value| !value)
-        {
+        let Some(seed) = solid.iter().position(|v| *v) else {
             return Err(FemError::MissingInterface);
-        }
-        let mut visited = vec![false; solid.len()];
-        let mut pending = vec![0];
-        while let Some(index) = pending.pop() {
+        };
+        let [_, ny, nz] = self.definition.cells;
+        let mut seen = vec![false; solid.len()];
+        let mut pending = vec![seed];
+        while let Some(i) = pending.pop() {
             if cancelled() {
                 return Err(FemError::Cancelled);
             }
-            if visited[index] {
+            if seen[i] {
                 continue;
             }
-            visited[index] = true;
-            let point = [index / layer, index / nz % ny, index % nz];
+            seen[i] = true;
+            let p = [i / (ny * nz), i / nz % ny, i % nz];
             for axis in 0..3 {
                 for positive in [false, true] {
-                    let mut other = point;
+                    let mut q = p;
                     if positive {
-                        if other[axis] + 1 == self.beam.cells[axis] {
+                        if q[axis] + 1 == self.definition.cells[axis] {
                             continue;
                         }
-                        other[axis] += 1;
+                        q[axis] += 1;
                     } else {
-                        if other[axis] == 0 {
+                        if q[axis] == 0 {
                             continue;
                         }
-                        other[axis] -= 1;
+                        q[axis] -= 1;
                     }
-                    let neighbour = (other[0] * ny + other[1]) * nz + other[2];
-                    if solid[neighbour] && !visited[neighbour] {
-                        pending.push(neighbour);
+                    let j = (q[0] * ny + q[1]) * nz + q[2];
+                    if solid[j] && !seen[j] {
+                        pending.push(j);
                     }
                 }
             }
         }
         if solid
             .iter()
-            .zip(visited)
-            .any(|(active, seen)| *active && !seen)
+            .zip(seen)
+            .any(|(active, visited)| *active && !visited)
         {
             return Err(FemError::Disconnected);
         }
@@ -221,15 +253,76 @@ impl BeamModel {
             .iter()
             .map(|active| if *active { 1.0 } else { 0.0 })
             .collect();
-        self.solve_scales(&scales, solver, cancelled)
+        self.solve_scales(&scales, boundary, solver, cancelled)
+    }
+
+    fn restrains_rigid_modes(&self, fixed: &[[bool; 3]]) -> bool {
+        // Rank of prescribed components of u = translation + rotation cross r.
+        // Coordinates are nondimensionalized by the domain's largest length.
+        let [_, ny, nz] = self.definition.cells;
+        let scale = self
+            .definition
+            .dimensions
+            .iter()
+            .map(|l| l.metres())
+            .fold(0.0, f64::max);
+        let mut basis: Vec<[f64; 6]> = Vec::new();
+        for (node, axes) in fixed.iter().enumerate() {
+            let p = [
+                node / ((ny + 1) * (nz + 1)),
+                node / (nz + 1) % (ny + 1),
+                node % (nz + 1),
+            ];
+            let [x, y, z] = std::array::from_fn(|a| {
+                p[a] as f64 / self.definition.cells[a] as f64
+                    * self.definition.dimensions[a].metres()
+                    / scale
+            });
+            let rows = [
+                [1.0, 0.0, 0.0, 0.0, z, -y],
+                [0.0, 1.0, 0.0, -z, 0.0, x],
+                [0.0, 0.0, 1.0, y, -x, 0.0],
+            ];
+            for axis in 0..3 {
+                if !axes[axis] {
+                    continue;
+                }
+                let mut row = rows[axis];
+                for vector in &basis {
+                    let dot: f64 = row.iter().zip(vector).map(|(a, b)| a * b).sum();
+                    for i in 0..6 {
+                        row[i] -= dot * vector[i];
+                    }
+                }
+                let norm = row.iter().fold(0.0_f64, |norm, v| norm.hypot(*v));
+                if norm > 1e-10 {
+                    basis.push(row.map(|v| v / norm));
+                }
+                if basis.len() == 6 {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn solve_scales(
         &self,
         scales: &[f64],
+        boundary: &BoundaryConditions,
         solver: &dyn SparseLinearSolver,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<FemResult, FemError> {
+    ) -> Result<GridResult, FemError> {
+        if cancelled() {
+            return Err(FemError::Cancelled);
+        }
+        if boundary.constraints.is_empty()
+            || boundary.forces.is_empty()
+            || boundary.constraints.len() > self.node_count * 3
+            || boundary.forces.len() > self.node_count * 3
+        {
+            return Err(FemError::Boundary);
+        }
         let mut active = vec![false; self.node_count];
         for (element, scale) in self.elements.iter().zip(scales) {
             if *scale > 0.0 {
@@ -238,17 +331,53 @@ impl BeamModel {
                 }
             }
         }
-        let mut mapping = vec![None; self.node_count];
-        let mut rhs = Vec::new();
-        for node in self.fixed_nodes..self.node_count {
-            if active[node] {
-                mapping[node] = Some(rhs.len());
-                rhs.extend_from_slice(
-                    &self.rhs[(node - self.fixed_nodes) * 3..(node - self.fixed_nodes + 1) * 3],
-                );
+        let mut fixed = vec![[false; 3]; self.node_count];
+        let mut forces = vec![[0.0; 3]; self.node_count];
+        for constraint in &boundary.constraints {
+            let node = constraint.node.0;
+            if node >= self.node_count || !constraint.fixed.iter().any(|v| *v) {
+                return Err(FemError::Boundary);
+            }
+            if !active[node] {
+                return Err(FemError::MissingInterface);
+            }
+            for axis in 0..3 {
+                fixed[node][axis] |= constraint.fixed[axis];
             }
         }
-        let mut lower = Vec::with_capacity(self.elements.len() * 300);
+        for load in &boundary.forces {
+            let node = load.node.0;
+            if node >= self.node_count || load.force.iter().any(|f| !f.newtons().is_finite()) {
+                return Err(FemError::Boundary);
+            }
+            if !active[node] {
+                return Err(FemError::MissingInterface);
+            }
+            for axis in 0..3 {
+                forces[node][axis] += load.force[axis].newtons();
+            }
+        }
+        if !self.restrains_rigid_modes(&fixed) {
+            return Err(FemError::RigidModes);
+        }
+        let mut mapping = vec![[None; 3]; self.node_count];
+        let mut rhs = Vec::new();
+        for node in 0..self.node_count {
+            for axis in 0..3 {
+                let force = forces[node][axis];
+                if !force.is_finite() || (fixed[node][axis] && force != 0.0) {
+                    return Err(FemError::Boundary);
+                }
+                if active[node] && !fixed[node][axis] {
+                    mapping[node][axis] = Some(rhs.len());
+                    rhs.push(force);
+                }
+            }
+        }
+        if rhs.is_empty() || rhs.len() > 8000 || rhs.iter().all(|v| *v == 0.0) {
+            return Err(FemError::Boundary);
+        }
+        let mut lower = Vec::with_capacity(self.element_count() * 300);
         for (element, scale) in self.elements.iter().zip(scales) {
             if cancelled() {
                 return Err(FemError::Cancelled);
@@ -257,17 +386,13 @@ impl BeamModel {
                 continue;
             }
             for local_row in 0..24 {
-                let row_node = element[local_row / 3];
-                let Some(base) = mapping[row_node] else {
+                let Some(row) = mapping[element[local_row / 3]][local_row % 3] else {
                     continue;
                 };
-                let row = base + local_row % 3;
                 for local_column in 0..24 {
-                    let column_node = element[local_column / 3];
-                    let Some(base) = mapping[column_node] else {
+                    let Some(column) = mapping[element[local_column / 3]][local_column % 3] else {
                         continue;
                     };
-                    let column = base + local_column % 3;
                     if row >= column {
                         lower.push(MatrixEntry {
                             row: DofId(row),
@@ -291,33 +416,32 @@ impl BeamModel {
         if cancelled() {
             return Err(FemError::Cancelled);
         }
-        let mut displacements = vec![[Length::ZERO; 3]; self.node_count];
-        for (node, displacement) in displacements.iter_mut().enumerate().skip(self.fixed_nodes) {
-            if let Some(base) = mapping[node] {
-                *displacement =
-                    std::array::from_fn(|axis| Length::from_metres(solution.values[base + axis]));
-            }
-        }
-        let compliance = rhs
+        let displacements: Vec<[Length; 3]> = mapping
             .iter()
-            .zip(&solution.values)
-            .map(|(force, displacement)| force * displacement)
-            .sum::<f64>();
-        let mut element_energies = Vec::with_capacity(self.elements.len());
+            .map(|node| {
+                std::array::from_fn(|axis| {
+                    node[axis].map_or(Length::ZERO, |dof| {
+                        Length::from_metres(solution.values[dof])
+                    })
+                })
+            })
+            .collect();
+        let compliance: f64 = rhs.iter().zip(&solution.values).map(|(f, u)| f * u).sum();
+        let mut element_energies = Vec::with_capacity(self.element_count());
         for (element, scale) in self.elements.iter().zip(scales) {
+            if cancelled() {
+                return Err(FemError::Cancelled);
+            }
             if *scale == 0.0 {
                 element_energies.push(0.0);
                 continue;
             }
-            if cancelled() {
-                return Err(FemError::Cancelled);
-            }
             let local: [f64; 24] =
                 std::array::from_fn(|dof| displacements[element[dof / 3]][dof % 3].metres());
             let mut energy = 0.0;
-            for (row, displacement) in local.iter().enumerate() {
-                for (column, other) in local.iter().enumerate() {
-                    energy += displacement * self.stiffness[row][column] * other;
+            for (row, u) in local.iter().enumerate() {
+                for (column, v) in local.iter().enumerate() {
+                    energy += u * self.stiffness[row][column] * v;
                 }
             }
             element_energies.push(energy);
@@ -325,38 +449,141 @@ impl BeamModel {
         let total_energy: f64 = element_energies
             .iter()
             .zip(scales)
-            .map(|(energy, scale)| energy * scale)
+            .map(|(e, s)| e * s)
             .sum();
         if !compliance.is_finite()
             || compliance <= 0.0
             || !total_energy.is_finite()
             || (total_energy - compliance).abs() / compliance > 1e-6
-            || element_energies
-                .iter()
-                .any(|energy| !energy.is_finite() || *energy < 0.0)
+            || element_energies.iter().any(|e| !e.is_finite() || *e < 0.0)
         {
             return Err(FemError::Energy);
         }
-        let mut tip = [0.0; 3];
-        for lateral in 0..=self.beam.cells[1] {
-            for vertical in 0..=self.beam.cells[2] {
-                let node = self.beam.cells[0] * self.fixed_nodes
-                    + lateral * (self.beam.cells[2] + 1)
-                    + vertical;
-                let weight = face_weight(lateral, self.beam.cells[1])
-                    * face_weight(vertical, self.beam.cells[2]);
-                for (axis, value) in tip.iter_mut().enumerate() {
-                    *value += weight * displacements[node][axis].metres();
-                }
-            }
-        }
-        Ok(FemResult {
+        Ok(GridResult {
             displacements,
             compliance: Compliance(compliance),
             relative_residual: solution.relative_residual,
-            mean_tip_displacement: tip.map(Length::from_metres),
             element_energies,
         })
+    }
+}
+
+pub struct BeamModel {
+    beam: Beam,
+    grid: GridModel,
+    boundary: BoundaryConditions,
+}
+impl BeamModel {
+    pub fn new(beam: Beam) -> Result<Self, FemError> {
+        let grid = GridModel::new(GridDefinition {
+            dimensions: beam.dimensions,
+            cells: beam.cells,
+            young_modulus: beam.young_modulus,
+            poisson_ratio: beam.poisson_ratio,
+        })?;
+        if beam.end_force.iter().any(|f| !f.newtons().is_finite())
+            || beam.end_force.iter().all(|f| f.newtons() == 0.0)
+            || beam.cells[0] * (beam.cells[1] + 1) * (beam.cells[2] + 1) * 3 > 8000
+        {
+            return Err(FemError::InvalidInput);
+        }
+        let mut boundary = BoundaryConditions {
+            constraints: Vec::new(),
+            forces: Vec::new(),
+        };
+        let [nx, ny, nz] = beam.cells;
+        for y in 0..=ny {
+            for z in 0..=nz {
+                boundary.constraints.push(NodeConstraint {
+                    node: NodeId(y * (nz + 1) + z),
+                    fixed: [true; 3],
+                });
+                let weight = face_weight(y, ny) * face_weight(z, nz);
+                boundary.forces.push(NodalForce {
+                    node: NodeId((nx * (ny + 1) + y) * (nz + 1) + z),
+                    force: beam
+                        .end_force
+                        .map(|f| Force::from_newtons(f.newtons() * weight)),
+                });
+            }
+        }
+        Ok(Self {
+            beam,
+            grid,
+            boundary,
+        })
+    }
+    pub fn beam(&self) -> &Beam {
+        &self.beam
+    }
+    pub fn grid_definition(&self) -> &GridDefinition {
+        self.grid.definition()
+    }
+    pub fn boundary_conditions(&self) -> &BoundaryConditions {
+        &self.boundary
+    }
+    pub fn element_count(&self) -> usize {
+        self.grid.element_count()
+    }
+    pub fn solve(
+        &self,
+        densities: &[f64],
+        penalty: f64,
+        stiffness_floor: f64,
+        solver: &dyn SparseLinearSolver,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<FemResult, FemError> {
+        self.grid
+            .solve(
+                densities,
+                penalty,
+                stiffness_floor,
+                &self.boundary,
+                solver,
+                cancelled,
+            )
+            .map(|result| self.with_tip(result))
+    }
+    pub fn solve_solid_mask(
+        &self,
+        solid: &[bool],
+        solver: &dyn SparseLinearSolver,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<FemResult, FemError> {
+        if cancelled() {
+            return Err(FemError::Cancelled);
+        }
+        if solid.len() != self.element_count() {
+            return Err(FemError::InvalidInput);
+        }
+        let layer = self.beam.cells[1] * self.beam.cells[2];
+        if solid[..layer]
+            .iter()
+            .chain(&solid[solid.len() - layer..])
+            .any(|s| !s)
+        {
+            return Err(FemError::MissingInterface);
+        }
+        self.grid
+            .solve_solid_mask(solid, &self.boundary, solver, cancelled)
+            .map(|result| self.with_tip(result))
+    }
+    pub(crate) fn with_tip(&self, grid: GridResult) -> FemResult {
+        let [nx, ny, nz] = self.beam.cells;
+        let mut tip = [0.0; 3];
+        for y in 0..=ny {
+            for z in 0..=nz {
+                let node = (nx * (ny + 1) + y) * (nz + 1) + z;
+                let weight = face_weight(y, ny) * face_weight(z, nz);
+                for (axis, value) in tip.iter_mut().enumerate() {
+                    *value += weight * grid.displacements[node][axis].metres();
+                }
+            }
+        }
+        FemResult {
+            grid,
+            mean_tip_displacement: tip.map(Length::from_metres),
+        }
     }
 }
 
@@ -446,6 +673,91 @@ mod tests {
             poisson_ratio: 0.0,
             end_force: force.map(Force::from_newtons),
         }
+    }
+
+    #[test]
+    fn arbitrary_axes_and_directional_supports_pass_exact_patch() -> Result<(), FemError> {
+        for axis in 0..3 {
+            let definition = GridDefinition {
+                dimensions: [0.03, 0.04, 0.05].map(Length::from_metres),
+                cells: [3, 2, 2],
+                young_modulus: Pressure::from_pascals(70e9),
+                poisson_ratio: 0.3,
+            };
+            let model = GridModel::new(definition.clone())?;
+            let mut boundary = BoundaryConditions {
+                constraints: Vec::new(),
+                forces: Vec::new(),
+            };
+            let [nx, ny, nz] = definition.cells;
+            for x in 0..=nx {
+                for y in 0..=ny {
+                    for z in 0..=nz {
+                        let p = [x, y, z];
+                        let node = model.node_id(p).ok_or(FemError::InvalidInput)?;
+                        let fixed = p.map(|c| c == 0);
+                        if fixed.iter().any(|v| *v) {
+                            boundary.constraints.push(NodeConstraint { node, fixed });
+                        }
+                        if p[axis] == definition.cells[axis] {
+                            let u = (axis + 1) % 3;
+                            let v = (axis + 2) % 3;
+                            let weight = face_weight(p[u], definition.cells[u])
+                                * face_weight(p[v], definition.cells[v]);
+                            boundary.forces.push(NodalForce {
+                                node,
+                                force: std::array::from_fn(|a| {
+                                    Force::from_newtons(if a == axis { 10.0 * weight } else { 0.0 })
+                                }),
+                            });
+                        }
+                    }
+                }
+            }
+            let result = model.solve(&[1.0; 12], 3.0, 1e-6, &boundary, &FaerSolver, &|| false)?;
+            let area = definition.dimensions[(axis + 1) % 3].metres()
+                * definition.dimensions[(axis + 2) % 3].metres();
+            let extension = 10.0 * definition.dimensions[axis].metres() / (70e9 * area);
+            assert!((result.compliance.joules() / (10.0 * extension) - 1.0).abs() < 1e-10);
+            for load in &boundary.forces {
+                assert!(
+                    (result.displacements[load.node.0][axis].metres() / extension - 1.0).abs()
+                        < 1e-10
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn general_boundaries_reject_invalid_nodes_lost_interfaces_and_rigid_modes()
+    -> Result<(), FemError> {
+        let adapter = BeamModel::new(beam([4, 2, 2], [0.0, 0.0, -1.0]))?;
+        let model = GridModel::new(adapter.grid_definition().clone())?;
+        let boundary = adapter.boundary_conditions().clone();
+        let solve = |conditions: &BoundaryConditions| {
+            model.solve(&[1.0; 16], 3.0, 1e-6, conditions, &FaerSolver, &|| false)
+        };
+        let mut invalid = boundary.clone();
+        invalid.constraints.truncate(1);
+        assert!(matches!(solve(&invalid), Err(FemError::RigidModes)));
+        invalid = boundary.clone();
+        invalid.forces[0].node = NodeId(usize::MAX);
+        assert!(matches!(solve(&invalid), Err(FemError::Boundary)));
+        invalid = boundary.clone();
+        invalid.forces[0].node = NodeId(0);
+        assert!(matches!(solve(&invalid), Err(FemError::Boundary)));
+        invalid = boundary.clone();
+        invalid.forces[0].force[0] = Force::from_newtons(f64::NAN);
+        assert!(matches!(solve(&invalid), Err(FemError::Boundary)));
+        let mut mask = [true; 16];
+        mask[15] = false;
+        assert!(matches!(
+            model.solve_solid_mask(&mask, &boundary, &FaerSolver, &|| false),
+            Err(FemError::MissingInterface)
+        ));
+        assert_eq!(model.node_id([5, 0, 0]), None);
+        Ok(())
     }
 
     #[test]

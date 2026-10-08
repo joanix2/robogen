@@ -117,3 +117,38 @@ verifier le chemin de charge vers l'appui et ne pas utiliser le plancher SIMP
 pour porter artificiellement des efforts a travers le vide. Les metriques
 recalculees concernent cette discretisation, pas une certification de solidite
 ni les geometries lissees. L'ancien benchmark sans masque reste reproductible.
+
+## Conditions explicites et cas multiples (iteration 6)
+
+Le coeur FEM devient GridModel sur GridDefinition (dimensions, cellules,
+elasticite), avec NodeId local a la grille et BoundaryConditions contenant forces
+nodales et blocages de translation par axe. Ni position de l'encastrement ni
+face chargee ne sont implicites. BeamModel est un adaptateur qui construit son
+ancien probleme et sa moyenne de deplacement en bout ; les benchmarks existants
+restent des contrats. Les IDs de grille ne sont pas des references persistantes.
+
+GridRequest conserve cas de charge avec LoadCaseId/source span et revision.
+L'objectif de raideur multi-cas est la somme non ponderee des compliances : les
+forces ne sont jamais moyennees ou superposees entre cas. Chaque cas produit sa
+propre analyse et ses derivees contribuent a OC. Les contraintes futures seront
+verifiees par cas, pas contre une moyenne de leurs reponses. Les bornes de
+ressources limitent explicitement aussi le nombre de cas.
+
+La reanalyse binaire retire les cellules/DOF absents pour chaque cas. Les charges
+ou appuis sur des noeuds absents sont refuses. Une connexion par faces est requise
+pour la piece ; le solveur SPD refuse les modes rigides restants. Les appuis
+obliques necessitant un changement de base ne sont pas assimiles a des appuis
+cartesiens. La projection des interfaces nommees est un etage distinct a venir,
+sans nouvelle dependance CAD dans le solveur numerique.
+
+Le test prealable d'appuis porte sur le rang des six modes rigides avec positions
+normalisees et tolerance 1e-10. Il complete la factorisation/residu sans pretendre
+borner tout conditionnement. Les composantes de force sur DOF bloques sont
+explicitement refusees dans cette API (reactions et deplacements imposes non
+nuls hors capacites). Les noeuds absents ne sont jamais remplaces par des ressorts.
+
+Reference methodologique consultee : Andreassen et al., 2011,
+[Efficient topology optimization in MATLAB using 88 lines of code](https://www.topopt.mek.dtu.dk/-/media/subsites/topopt/apps/dokumenter-og-filer-til-apps/topopt88.pdf),
+pour SIMP, filtre de densite, OC et extensions de conditions/cas. Les validations
+RoboGen portent sur son propre Hex8 3D et ses sensibilites, pas sur une simple
+reproduction du programme MATLAB 2D.

@@ -414,3 +414,71 @@ capacites de contraintes, publication DSL/desktop avec revision et annulation,
 puis supports du bipede. E330 reste intentionnellement actif jusque-la.
 
 ### user
+
+### agent
+
+## Iteration 6 - Retirer l'hypothese poutre avant projection DSL
+
+Etat autoritatif 827a2bb propre : iteration precedente = progres verifie. Le
+solveur reste lie a l'encastrement X=0 et a une force unique sur X=L. Adapter
+TopologySpec a cette fixture restreindrait artificiellement la demande.
+
+Plan/todo/implementation autorises : extraire le modele Hex8 general avec IDs de
+noeuds, appuis par DOF et charges nodales explicites ; garder BeamModel comme
+adaptateur de reference. Generaliser SIMP aux cas de charge identifies, sommer
+leurs compliances/derivees pour maximize_stiffness et conserver chaque analyse
+sans moyenner les forces. Reanalyse binaire de chaque cas et diagnostics des
+interfaces perdues/modes libres. Verifier cas non-X, charges opposees, limites,
+annulation et regressions des benchmarks. ADR avant changement de contrat.
+
+Cette dependance est necessaire au raccordement DSL reel ; elle ne remplace pas
+l'objectif global par une poutre plus sophistiquee. Projection des geometries et
+interfaces DSL, objectifs/contraintes/fabrication et publication restent suivis.
+
+### user
+
+### agent
+
+## Iteration 6 - Coeur FEM general et SIMP multi-cas verifies
+
+GridDefinition/GridModel retirent l'encastrement et la charge implicites du coeur.
+BoundaryConditions porte NodeId revision-local, composantes bloquees et forces
+nodales typees. BeamModel construit maintenant sa fixture par cet adaptateur ;
+les deux benchmarks anterieurs restent passes. FemResult ajoute seulement la
+moyenne en bout a GridResult. Pas de second solveur ni d'application parallele.
+
+Validation nouvelle : rang des six modes rigides avant factorisation, IDs/bornes,
+composantes chargees sur DOF bloques refusees, forces finies/non nulles, noeuds
+charges/appuyes conserves en binaire, connexion par faces, residu et bilan energie.
+Appuis obliques, reactions et deplacements imposes non nuls hors capacites.
+Un patch analytique avec effet Poisson et appuis directionnels passe selon X/Y/Z.
+
+GridRequest/optimize_grid acceptent 1..16 cas uniques avec LoadCaseId/span/revision.
+Chaque cas a ses propres appuis/forces ; OC somme compliance et derivees, jamais
+les forces entre cas. Historiques et resultats conservent les analyses individuelles,
+les erreurs identifient le cas et aucun resultat partiel n'est renvoye. Le total
+non fini est refuse avant publication de progression. optimize_beam utilise ce
+meme chemin. Sensibilites multi-cas verifiees par differences finies avec charges
+et ensembles d'appuis differents.
+
+GridSolid reanalyse tous les cas sans rigidite du vide, rapporte progression par
+ID de cas et refuse l'annulation apres un premier cas avant toute restitution.
+Integration reelle jusqu'au STL en memoire : deux forces opposees, 33 iterations,
+80/96 cellules, 336 triangles ; chaque compliance binaire = 2.9645595391509907e-7 J.
+Les forces opposees ne s'annulent pas et chaque reponse est comparable a une
+resolution independante. Temps local test 23.89 s, non garantie de performance.
+
+Verification finale : 130 tests workspace passes, cargo fmt --check et cargo
+clippy --workspace --all-targets -- -D warnings passes, git diff --check propre.
+Les tests couvrent aussi appuis insuffisants, IDs invalides, interface perdue,
+cas duplique, provenance, annulation et invariance des benchmarks poutre.
+ADR-008/architecture/TECHNICAL/README mis a jour. Pas de chemin UI modifie ni de
+capture native revendiquee ; aucun cache, STL ou outil local versionne.
+
+Checkpoint local autorise de cette tranche. L'objectif complet reste actif :
+projeter les geometries et interfaces TopologySpec sur ce coeur general, appliquer
+objectifs/contraintes/fabrication, reconstruire et publier via DSL/desktop avec
+revisions et annulation, puis generer les supports du bipede. E330 reste actif
+car le projecteur et le dispatch des capacites ne sont pas encore raccordes.
+
+### user

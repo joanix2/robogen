@@ -208,3 +208,70 @@ The 0.85 benchmark proves the validation path on one explicit case.
 All 124 workspace tests, formatting and Clippy all-targets -D warnings pass.
 Arbitrary geometric regions, multiple load cases, constraint capability dispatch,
 DSL result publication and the desktop workflow remain open; E330 is unchanged.
+
+## General FEM And Multiple Load Cases (iteration 6)
+
+The numerical core is now `GridModel`, constructed from `GridDefinition` with
+no implicit support or force. `BoundaryConditions` supplies `NodeConstraint`
+(three axis-specific translation locks) and typed `NodalForce` entries. `NodeId`
+is local to the grid, X slowest/Z fastest; obtain it through checked `node_id`.
+Coordinates are in the grid frame, starting at zero. The grid is not a persisted
+robot or CAD model. `BeamModel` now builds the original beam boundary conditions
+and adds the weighted tip displacement to a `GridResult`; it no longer owns a
+separate assembly/solve algorithm. Existing beam benchmarks remain regressions.
+
+Constraints must restrain all six rigid-body modes: a rank check of prescribed
+components of translation plus rotation cross position runs before factorization.
+Its normalized tolerance is 1e-10. Extremely ill-conditioned configurations can
+be rejected; the check is not a general condition-number guarantee. The sparse
+SPD, residual and energy checks still apply. Invalid node IDs, non-finite/zero
+net loads, force components on constrained DOFs and missing solid-mask interface
+nodes produce errors. Duplicate nodal forces add within one load case. This
+implementation rejects loads on locked components explicitly rather than silently
+discarding them; reactions and nonzero imposed displacements are not supported.
+All binary material must be connected through faces, as in the previous slice.
+
+`GridRequest` accepts 1..16 cases with unique `LoadCaseId` and `SourceSpan`, shared
+grid/material, masks, options and caller revision. `optimize_grid` minimizes the
+**sum of case compliances** at the volume equality; it sums the case derivatives
+for the OC update. It solves each case with its own boundary conditions, never
+combines forces across cases, and retains each response in `CaseAnalysis`.
+`GridIteration` reports per-case compliance/residual as well as their summed
+compliance and maximum residual. This objective is not a per-case displacement,
+stress or frequency constraint; those remain separate work. All case solves must
+succeed before a completed iteration/result is returned.
+
+`GridOptimization::reconstruct_solid` reanalyses every case without void stiffness,
+reports completed case IDs, checks cancellation after callbacks, and returns a
+`GridSolid` only after all cases and mesh validation succeed. Budget status remains
+explicit. The original `BeamRequest`/`optimize_beam` API is an adapter over this
+same multi-case implementation. No separate mock or beam-only optimizer remains.
+
+Reproduce the integration fixture:
+
+```sh
+cargo test -p robogen-topopt --test grid -- --nocapture
+```
+
+Two opposite end loads on the preserved-end 0.85-volume benchmark produce 33
+updates and the same 80/96-cell binary solid at threshold 0.65. Each case has
+compliance 2.9645595391509907e-7 J; neither is zero despite opposite forces.
+The actual STL is generated in memory by robogen-export and checked in the test.
+The local integration run took 23.89 s, not a performance guarantee.
+
+Additional checks: exact traction/Poisson patch tests along each axis with
+axis-specific supports, lost interfaces, rigid modes, invalid boundary input,
+opposed-case invariance, finite-difference derivatives with different support
+sets and load directions, case IDs/spans, duplicate-case rejection, cancellation
+after one reanalysis, and existing single-case benchmarks. Resource limits remain
+2048 cells, 64 per axis and 8000 **free** DOFs per solve; the grid may contain more
+fixed DOFs. One sparse factorization is still not interruptible internally.
+
+The DSL interface/geometry projector and desktop publication are still pending.
+This API removes the old beam restriction so the projector can express actual
+interface locations and all declared cases. It does not infer loads from the robot
+or implement oblique pin/frictionless bases, moment distribution or manufacturing.
+
+Iteration 6 verification: 130 workspace tests pass, with formatting and workspace
+all-targets Clippy -D warnings. No native UI route is changed by this numerical
+slice, and no desktop acceptance is claimed.
