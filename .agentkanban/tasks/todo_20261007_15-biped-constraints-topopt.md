@@ -208,3 +208,10 @@ cloture, aucun support du robot calcule ; lots 1/2 et 4/5/6 restent ouverts.
 Mesure : deux iterations du tibia, 300.27 s CPU contre 105.18 s CUDA (~2.85x).
 Qualification numerique limitee aux tests executes ; convergence mecanique et
 publication du tibia restent ouvertes. Commit checkpoint demande par l'utilisateur.
+
+# Iteration 17 - Defaut d'optimisation signale
+
+- [ ] Reproduire l'echec et verifier les gradients composes et contraintes.
+- [ ] Corriger la cause avec la bibliotheque existante, limites/tolerances inchangees.
+- [ ] Verifier la qualification et le calcul sur le tibia PLA declare.
+- [ ] Verifier integration, diagnostics, documentation et checkpoint autorise.

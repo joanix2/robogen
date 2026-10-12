@@ -664,3 +664,37 @@ fn dsl_topology_executes_reanalyses_and_exports_actual_geometry()
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "requires local Julia; complete minimum-mass and binary reanalysis transport"]
+fn native_mass_converged_solid_preserves_connections_and_case_limits()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut request = request()?;
+    request.specification.objective = Objective::MinimizeMass;
+    request.specification.constraints = vec![Constraint {
+        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.001)),
+        span: request.specification.span,
+    }];
+    let result =
+        robogen_topopt::mass::diagnose_mass(&request, &settings(), &|| false, &mut |_| {})?;
+    assert!(result.finished && result.converged && result.feasible);
+    let solid = result
+        .binary
+        .as_ref()
+        .ok_or_else(|| format!("missing solid: {:?}", result.reconstruction_error))?;
+    assert_eq!(result.connectivity(solid.threshold, false)?.components, 1);
+    assert_eq!(
+        result
+            .connectivity(solid.threshold, false)?
+            .preserved_components,
+        1
+    );
+    assert!(solid.mass.kilograms() > 0.0);
+    assert_eq!(solid.displacements.len(), result.cases.len());
+    for ((id, value), (expected, _, limit)) in solid.displacements.iter().zip(&result.cases) {
+        assert_eq!(id, expected);
+        assert!(value.metres() <= limit.metres());
+    }
+    assert_eq!(result.document_revision, request.document_revision);
+    Ok(())
+}

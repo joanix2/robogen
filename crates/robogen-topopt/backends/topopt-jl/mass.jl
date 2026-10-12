@@ -1,5 +1,15 @@
 using TopOpt
 
+# Conservative smooth maximum of nonnegative squared, normalized displacements.
+# No division by the node count: the p-norm bounds every individual node.
+# Scaling avoids overflow; the algebra cancels the derivative of the maximum,
+# including at tied critical nodes. The zero case also has a finite gradient.
+function displacement_envelope(values)
+    scale = maximum(values)
+    iszero(scale) && return sum(values)
+    return scale * sum((values ./ scale).^16)^(1 / 16)
+end
+
 function prepare_mass(problems; density_kg_m3, solid_cells, void_cells,
     displacement_limits_m, filter_radius_m, solver_type=DirectSolver)
     1 <= length(problems) <= 16 || throw(ArgumentError("Expected 1..16 independent cases"))
@@ -37,10 +47,23 @@ function prepare_mass(problems; density_kg_m3, solid_cells, void_cells,
     end for case_index in eachindex(problems)]
     constraints = [let measure = squared_displacements[case_index],
         limit = displacement_limits_m[case_index]
-        free -> maximum(measure(free)) / limit^2 - 1.0
+        free -> displacement_envelope(measure(free) ./ limit^2) - 1.0
     end for case_index in eachindex(problems)]
+    # Diagnostic callbacks are outside AD. Reuse the forward state just evaluated
+    # by MMA only when its physical density matches exactly. Adjoint solves use
+    # solver.lhs, leaving solver.u intact in the pinned TopOpt adapter.
+    responses = free -> begin
+        field = physical(free)
+        [let displacement = displacement_functions[index],
+            node_dofs = problems[index].metadata.node_dofs
+            if displacement.fevals == 0 || displacement.solver.vars != field.x
+                displacement(field)
+            end
+            sqrt(maximum(vec(sum(abs2, displacement.solver.u[node_dofs]; dims=1))))
+        end for index in eachindex(problems)]
+    end
     return (; physical, mass, reference_mass_kg, reference, constraints,
-        squared_displacements, projector, displacement_limits_m)
+        squared_displacements, projector, displacement_limits_m, responses)
 end
 
 function solve_mass(prepared; max_iterations=200, cancelled=() -> false,
@@ -63,9 +86,9 @@ function solve_mass(prepared; max_iterations=200, cancelled=() -> false,
             tol=Nonconvex.Tolerance(; kkt=1e-4, infeas=1e-5)))
     cancelled() && throw(InterruptException())
     densities = prepared.physical(result.minimizer).x
-    displacements_m = [sqrt(maximum(measure(result.minimizer)))
-        for measure in prepared.squared_displacements]
-    violations = [constraint(result.minimizer) for constraint in prepared.constraints]
+    displacements_m = prepared.responses(result.minimizer)
+    # Report the declared physical limits, not the conservative surrogate.
+    violations = (displacements_m ./ prepared.displacement_limits_m).^2 .- 1.0
     finite = all(isfinite, densities) && all(isfinite, displacements_m) &&
         all(isfinite, violations)
     return (; densities, mass_kg=prepared.mass(result.minimizer),

@@ -873,3 +873,20 @@ through filters, units/index ordering, cancellation and post-reconstruction
 reanalysis. Minimum compliance at a volume budget is not minimum mass under
 strength limits. Capabilities remain explicit and unsupported constraints fail.
 See ADR-008 for primary sources, package-version caveat and migration gates.
+
+
+## Mass convergence and connected candidate diagnostics (iteration 17)
+
+The mass adapter now uses a conservative smooth nodal-displacement envelope;
+exact physical maxima still control feasibility in the wire protocol. The
+previous 500-iteration failing fixture converges in 29 iterations. The actual
+estimated-PLA tibia also converges, with no change to loads, grid or limits.
+See the backend README and ADR-008 for the mathematical bound and evidence.
+
+After convergence, bounded descending thresholds are tested for face connectivity
+and exact reduced-cell FEM reanalysis. BinaryMassDiagnostic is kept separate
+from gray-field mass and from exportable meshes. Rust checks the received mask,
+mass and case limits. Native Optimisation exposes the reanalysed candidate and
+its actual threshold/mass; a visual connectivity proposal never grants export.
+Product inputs remain the original .rgn; no generated robot geometry is inserted
+into the DSL. Callback response reuse avoids duplicate FEM solves outside AD.

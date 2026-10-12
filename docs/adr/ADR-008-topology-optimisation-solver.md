@@ -338,3 +338,42 @@ Sources consultees le 2026-10-08, sans execution du paquet :
 
 Le GPU local interroge par nvidia-smi est une NVIDIA GeForce RTX 3060, non 3090.
 Ce constat n'est ni une validation CUDA du candidat ni un benchmark GPU.
+
+### Correction des maxima non lisses et diagnostic de connexion (iteration 17)
+
+Le maximum nodal exact utilise comme contrainte MMA oscillait sur la fixture
+symetrique : 500 iterations, KKT .00243068 et violation 8.04e-5. Gradients composes
+verifies par differences finies (erreur relative <4e-8) ; MMA02 et changement de
+solveur dual ne corrigent pas ce cas. Une majoration lisse par norme p=16 des
+normes nodales au carre normalisees converge en 29 iterations, aux memes limites
+et tolerances : KKT 9.69e-5. Pour q_i=||u_i||²/limite² >=0,
+max(q) <= (sum(q_i^16))^(1/16). La somme n'est PAS divisee par le nombre de noeuds.
+C'est une restriction conservative explicite, pas un relachement du deplacement.
+Le protocole rapporte toujours les violations du maximum physique exact ; la
+convergence KKT se rapporte au probleme conservateur. Aucune garantie de minimum
+global ou d'independance au raffinement n'en decoule. Verifier la formule composee,
+les points critiques ex aequo, les cas independants et le vrai tibia avant livraison.
+
+Le seuil visuel du champ gris peut rompre une liaison valide dans le modele SIMP.
+Le diagnostic de connexion doit donc etre calcule dans TopOpt, par voisinage de
+faces entre cellules actives, et expose dans la vue avec le seuil. Un seuil de
+connexion propose doit etre explicite ; il ne vaut ni reconstruction certifiee,
+ni reanalyse binaire et ne rend aucun diagnostic exportable. Ne pas ajouter de
+ponts ou supprimer des fragments pour maquiller la geometrie.
+
+Apres convergence du probleme de masse, l'adaptateur peut reconstruire un
+candidat voxel puis le reanalyser par la meme bibliotheque FEM, avec cellules
+vides ET noeuds inutilises retires. Une recherche bornee teste neuf seuils
+explicites t, .8t, ... .8^8t, depuis le seuil de reconstruction choisi. Chaque
+essai doit conserver toutes les regions imposees, exclure les keepouts, former
+une seule composante par faces et respecter chaque deplacement declare. Le
+premier essai valide est rapporte avec son seuil et sa masse binaire distincts.
+Aucun pont ajoute, fragment supprime ou seuil dissimule ; pas de promesse de
+minimum discret global. Si aucun ne passe, l'echec reste un diagnostic.
+
+MassDiagnostic porte ce candidat de reanalyse comme DTO distinct du champ gris ;
+Rust recalcule independamment masque/connexite/masse et controle cas/limites et
+revision. Le panneau propose explicitement son affichage au seuil rapporte.
+Ce chemin ne publie pas encore de maillage manufacturable : les maillages CAD
+exportables et TopologyReport restent separes, car verification de frontiere
+manifold, fabrication et qualification des fixations reelles restent requises.

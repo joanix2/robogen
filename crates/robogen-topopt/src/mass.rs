@@ -27,6 +27,13 @@ pub struct MassIteration {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct BinaryMassDiagnostic {
+    pub threshold: f64,
+    pub mass: Mass,
+    pub displacements: Vec<(LoadCaseId, Length)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct MassDiagnostic {
     pub compute_backend: ComputeBackend,
     pub id: OptimizationId,
@@ -47,6 +54,124 @@ pub struct MassDiagnostic {
     pub feasible: bool,
     pub converged: bool,
     pub kkt_residual: Option<f64>,
+    pub binary: Option<BinaryMassDiagnostic>,
+    pub reconstruction_error: Option<String>,
+}
+
+/// Face-connected components of a thresholded diagnostic, not mechanical approval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DensityConnectivity {
+    pub components: usize,
+    pub preserved_components: usize,
+    pub selected_cells: usize,
+    pub preserved_cells: usize,
+}
+
+impl MassDiagnostic {
+    pub fn connectivity(
+        &self,
+        threshold: f64,
+        reference: bool,
+    ) -> Result<DensityConnectivity, String> {
+        let densities = if reference {
+            &self.reference_densities
+        } else {
+            &self.densities
+        };
+        let count = self
+            .cells
+            .iter()
+            .try_fold(1usize, |n, axis| n.checked_mul(*axis));
+        if self.cells.contains(&0)
+            || count != Some(densities.len())
+            || densities.len() != self.regions.len()
+            || densities.len() > 32768
+            || !threshold.is_finite()
+            || !(0.0..=1.0).contains(&threshold)
+            || densities.iter().zip(&self.regions).any(|(value, role)| {
+                !value.is_finite()
+                    || !(0.0..=1.0).contains(value)
+                    || (*role == CellRegion::Preserve && *value != 1.0)
+                    || (*role == CellRegion::Void && *value != 0.0)
+            })
+        {
+            return Err("Invalid density connectivity input".into());
+        }
+        let active = |index: usize| densities[index] > 0.0 && densities[index] >= threshold;
+        let mut seen = vec![false; densities.len()];
+        let mut report = DensityConnectivity {
+            components: 0,
+            preserved_components: 0,
+            selected_cells: 0,
+            preserved_cells: 0,
+        };
+        let strides = [self.cells[1] * self.cells[2], self.cells[2], 1];
+        let mut queue = Vec::new();
+        for start in 0..densities.len() {
+            if seen[start] || !active(start) {
+                continue;
+            }
+            report.components += 1;
+            let mut has_preserve = false;
+            seen[start] = true;
+            queue.push(start);
+            while let Some(index) = queue.pop() {
+                report.selected_cells += 1;
+                if self.regions[index] == CellRegion::Preserve {
+                    has_preserve = true;
+                    report.preserved_cells += 1;
+                }
+                for (axis, stride) in strides.iter().enumerate() {
+                    let coordinate = index / stride % self.cells[axis];
+                    let neighbors = [
+                        (coordinate > 0).then(|| index - stride),
+                        (coordinate + 1 < self.cells[axis]).then(|| index + stride),
+                    ];
+                    for neighbor in neighbors.into_iter().flatten() {
+                        if !seen[neighbor] && active(neighbor) {
+                            seen[neighbor] = true;
+                            queue.push(neighbor);
+                        }
+                    }
+                }
+            }
+            report.preserved_components += usize::from(has_preserve);
+        }
+        Ok(report)
+    }
+
+    /// Highest existing density threshold connecting every preserved cell by faces.
+    /// Merely proposes a view setting: no density is changed, no bridge is added,
+    /// and detached non-preserved islands are neither hidden nor removed.
+    pub fn connection_threshold(&self, reference: bool) -> Result<Option<f64>, String> {
+        let full = self.connectivity(0.0, reference)?;
+        if full.preserved_cells == 0 || full.preserved_components != 1 {
+            return Ok(None);
+        }
+        let mut levels: Vec<_> = if reference {
+            self.reference_densities.clone()
+        } else {
+            self.densities.clone()
+        };
+        levels.retain(|density| *density > 0.0);
+        levels.sort_by(f64::total_cmp);
+        levels.dedup();
+        let mut lower = 0;
+        let mut upper = levels.len();
+        while lower + 1 < upper {
+            let middle = lower + (upper - lower) / 2;
+            if self
+                .connectivity(levels[middle], reference)?
+                .preserved_components
+                == 1
+            {
+                lower = middle;
+            } else {
+                upper = middle;
+            }
+        }
+        Ok(Some(levels[lower]))
+    }
 }
 
 #[derive(Deserialize)]
@@ -57,6 +182,13 @@ struct Envelope {
     compute_backend: ComputeBackend,
     #[serde(flatten)]
     event: Event,
+}
+
+#[derive(Clone, Deserialize)]
+struct BinaryResult {
+    threshold: f64,
+    mass_kg: f64,
+    displacements_m: Vec<f64>,
 }
 
 #[derive(Deserialize)]
@@ -88,6 +220,10 @@ enum Event {
         converged: bool,
         kkt_residual: f64,
         publishable: bool,
+        #[serde(default)]
+        binary: Option<BinaryResult>,
+        #[serde(default)]
+        reconstruction_error: Option<String>,
     },
     Error {
         message: String,
@@ -126,6 +262,7 @@ fn wire_request(prepared: &PreparedTopology, settings: &ExecutionSettings) -> se
         }).collect::<Vec<_>>(),
         "filter_radius_m": settings.filter_radius.metres(),
         "max_iterations": settings.max_iterations,
+        "reconstruction_threshold": settings.threshold,
         "limits_m": vec![limit; prepared.grid.load_cases.len()],
         "cases": prepared.grid.load_cases.iter().map(|case| json!({
             "id": case.id,
@@ -152,6 +289,7 @@ fn update_diagnostic(
     {
         return Err("Stale, incompatible or out-of-order mass event".into());
     }
+    let mut binary_result = None;
     let (mut densities, mass, reference_mass, displacements) = match event.event {
         Event::Error { message } => return Err(message.chars().take(2048).collect()),
         Event::Progress {
@@ -207,6 +345,8 @@ fn update_diagnostic(
             converged,
             kkt_residual,
             publishable,
+            binary,
+            reconstruction_error,
         } => {
             if diagnostic.reference_densities.is_empty()
                 || publishable
@@ -229,6 +369,15 @@ fn update_diagnostic(
             {
                 return Err("Invalid final mass diagnostic".into());
             }
+            if reconstruction_error
+                .as_ref()
+                .is_some_and(|message| message.len() > 2048)
+                || (binary.is_some() && reconstruction_error.is_some())
+            {
+                return Err("Invalid reconstruction status".into());
+            }
+            diagnostic.reconstruction_error = reconstruction_error;
+            binary_result = binary;
             diagnostic.finished = true;
             diagnostic.feasible = feasible;
             diagnostic.converged = converged;
@@ -276,6 +425,40 @@ fn update_diagnostic(
     diagnostic.reference_mass = Mass::from_kilograms(reference_mass);
     for (case, displacement) in diagnostic.cases.iter_mut().zip(displacements) {
         case.1 = Length::from_metres(displacement);
+    }
+    if let Some(binary) = binary_result {
+        let connection = diagnostic.connectivity(binary.threshold, false)?;
+        let binary_mass = connection.selected_cells as f64 * volume * density;
+        if !diagnostic.finished
+            || !diagnostic.converged
+            || !diagnostic.feasible
+            || binary.threshold <= 0.0
+            || connection.components != 1
+            || connection.preserved_components != 1
+            || !binary.mass_kg.is_finite()
+            || binary.mass_kg <= 0.0
+            || (binary.mass_kg - binary_mass).abs() > 1e-8 * binary_mass
+            || binary.displacements_m.len() != diagnostic.cases.len()
+            || binary
+                .displacements_m
+                .iter()
+                .zip(&diagnostic.cases)
+                .any(|(value, (_, _, limit))| {
+                    !value.is_finite() || *value < 0.0 || *value > limit.metres()
+                })
+        {
+            return Err("Invalid reconstructed-solid diagnostic".into());
+        }
+        diagnostic.binary = Some(BinaryMassDiagnostic {
+            threshold: binary.threshold,
+            mass: Mass::from_kilograms(binary.mass_kg),
+            displacements: diagnostic
+                .cases
+                .iter()
+                .zip(binary.displacements_m)
+                .map(|((id, _, _), value)| (*id, Length::from_metres(value)))
+                .collect(),
+        });
     }
     Ok(())
 }
@@ -327,6 +510,8 @@ pub fn diagnose_mass(
         feasible: false,
         converged: false,
         kkt_residual: None,
+        binary: None,
+        reconstruction_error: None,
     };
     let backend = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("backends/topopt-jl");
     let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/topopt-tools");
@@ -505,7 +690,48 @@ mod tests {
             feasible: false,
             converged: false,
             kkt_residual: None,
+            binary: None,
+            reconstruction_error: None,
         })
+    }
+
+    #[test]
+    fn threshold_connectivity_reports_broken_attachments_without_repairing_density()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut field = diagnostic()?;
+        field.cells = [5, 1, 1];
+        field.regions = vec![
+            CellRegion::Preserve,
+            CellRegion::Design,
+            CellRegion::Design,
+            CellRegion::Design,
+            CellRegion::Preserve,
+        ];
+        field.densities = vec![1.0, 0.8, 0.2, 0.6, 1.0];
+        field.reference_densities = vec![1.0; 5];
+        let original = field.densities.clone();
+        assert_eq!(field.connectivity(0.35, false)?.preserved_components, 2);
+        assert_eq!(field.connection_threshold(false)?, Some(0.2));
+        assert_eq!(field.connectivity(0.2, false)?.components, 1);
+        assert_eq!(field.connection_threshold(true)?, Some(1.0));
+        assert_eq!(field.densities, original);
+        field.regions[2] = CellRegion::Void;
+        field.densities[2] = 0.0;
+        assert_eq!(field.connection_threshold(false)?, None);
+        assert_eq!(field.connectivity(0.0, false)?.preserved_components, 2);
+        field.cells = [2, 2, 1];
+        field.regions = vec![
+            CellRegion::Preserve,
+            CellRegion::Void,
+            CellRegion::Void,
+            CellRegion::Preserve,
+        ];
+        field.densities = vec![1.0, 0.0, 0.0, 1.0];
+        assert_eq!(field.connection_threshold(false)?, None); // edge contact is not a path
+        assert!(field.connectivity(f64::NAN, false).is_err());
+        field.cells = [usize::MAX, 2, 1];
+        assert!(field.connectivity(0.5, false).is_err());
+        Ok(())
     }
 
     fn reference() -> serde_json::Value {
@@ -513,6 +739,61 @@ mod tests {
             "compute_backend": "cpu",
             "kind": "reference", "densities": [1.0, 1.0], "mass_kg": 0.0054, "reference_mass_kg": 0.0054,
             "displacements_m": [1e-6]})
+    }
+
+    #[test]
+    fn binary_protocol_checks_connectivity_mass_and_each_physical_limit()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let finish = json!({"schema":1,"operation":"00000000-0000-0000-0000-000000000001",
+            "revision":7,"compute_backend":"cpu","kind":"result",
+            "densities":[1.0,0.5],"mass_kg":0.00405,"reference_mass_kg":0.0054,
+            "displacements_m":[1e-6],"violations":[-0.9999],"feasible":true,
+            "converged":true,"kkt_residual":1e-5,"publishable":false,
+            "binary":{"threshold":0.5,"mass_kg":0.0054,"displacements_m":[2e-6]}});
+        let start = || -> Result<MassDiagnostic, Box<dyn std::error::Error>> {
+            let mut d = diagnostic()?;
+            update_diagnostic(&mut d, serde_json::from_value(reference())?, 2700.)?;
+            Ok(d)
+        };
+        let mut valid = start()?;
+        update_diagnostic(&mut valid, serde_json::from_value(finish.clone())?, 2700.)?;
+        let binary = valid.binary.ok_or("missing binary")?;
+        assert_eq!(binary.mass.kilograms(), 0.0054);
+        assert_eq!(binary.displacements[0].1.metres(), 2e-6);
+        for (key, value) in [
+            ("threshold", json!(0.0)),
+            ("threshold", json!(1.1)),
+            ("mass_kg", json!(0.00405)),
+            ("displacements_m", json!([0.0002])),
+            ("displacements_m", json!([])),
+        ] {
+            let mut event = finish.clone();
+            event["binary"][key] = value;
+            assert!(
+                update_diagnostic(&mut start()?, serde_json::from_value(event)?, 2700.).is_err()
+            );
+        }
+        let mut premature = finish.clone();
+        premature["converged"] = json!(false);
+        assert!(
+            update_diagnostic(&mut start()?, serde_json::from_value(premature)?, 2700.).is_err()
+        );
+        let mut broken = start()?;
+        broken.cells = [2, 2, 1];
+        broken.regions = vec![
+            CellRegion::Preserve,
+            CellRegion::Void,
+            CellRegion::Void,
+            CellRegion::Preserve,
+        ];
+        let mut disconnected = finish;
+        disconnected["densities"] = json!([1.0, 0.0, 0.0, 1.0]);
+        disconnected["mass_kg"] = json!(0.0027);
+        disconnected["binary"]["mass_kg"] = json!(0.0027);
+        assert!(
+            update_diagnostic(&mut broken, serde_json::from_value(disconnected)?, 2700.).is_err()
+        );
+        Ok(())
     }
 
     #[test]

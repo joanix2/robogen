@@ -14,7 +14,7 @@ end
 Problems.nnodespercell(::NativeProblem) = 8
 Problems.getcloaddict(problem::NativeProblem) = problem.loads
 
-function native_problem(request, load_case)
+function native_problem(request, load_case; occupied=nothing)
     counts = Tuple(Int.(request["cells"]))
     spacing = Tuple(Float64.(request["dimensions_m"]) ./ collect(counts))
     rect = Problems.RectilinearGrid(counts, spacing; celltype=:Linear)
@@ -37,6 +37,22 @@ function native_problem(request, load_case)
         cell_map[index] = native_index
     end
     all(cell_map .> 0) || error("Incomplete cell mapping")
+    if occupied !== nothing
+        length(occupied) == length(cell_map) && any(occupied) || error("Empty binary solid")
+        # Remove void cells AND unused nodes. No ersatz stiffness remains in the
+        # reconstructed-solid model. Retain the request-to-Ferrite maps.
+        selected_cells = sort(cell_map[occupied])
+        used_nodes = sort(unique(vcat([collect(grid.cells[i].nodes) for i in selected_cells]...)))
+        remap = zeros(Int, length(grid.nodes))
+        remap[used_nodes] = eachindex(used_nodes)
+        cell_type = typeof(first(grid.cells))
+        cells = [cell_type(Tuple(remap[collect(grid.cells[i].nodes)])) for i in selected_cells]
+        grid = FerriteApi.Grid(cells, grid.nodes[used_nodes])
+        node_map = remap[node_map]
+        cell_remap = zeros(Int, length(cell_map))
+        cell_remap[selected_cells] = eachindex(selected_cells)
+        cell_map = cell_remap[cell_map]
+    end
     handler = FerriteApi.DofHandler(grid)
     interpolation = FerriteApi.Lagrange{FerriteApi.RefHexahedron, 1}()
     FerriteApi.add!(handler, :u, interpolation^3)
@@ -44,6 +60,7 @@ function native_problem(request, load_case)
     constraints = FerriteApi.ConstraintHandler(handler)
     for axis in 1:3
         nodes = Set(node_map[Int(lock["node"]) + 1] for lock in load_case["constraints"] if lock["fixed"][axis])
+        0 in nodes && error("Binary solid lost a supported node")
         if !isempty(nodes)
             FerriteApi.add!(constraints, FerriteApi.Dirichlet(:u, nodes, (position, time) -> 0.0, [axis]))
         end
@@ -53,12 +70,15 @@ function native_problem(request, load_case)
     loads = Dict{Int, Vector{Float64}}()
     for load in load_case["forces"]
         node = node_map[Int(load["node"]) + 1]
+        node > 0 || error("Binary solid lost a loaded node")
         loads[node] = get(loads, node, zeros(3)) + Float64.(load["force_n"])
     end
     problem = NativeProblem(Float64(request["young_pa"]), Float64(request["poisson"]),
         constraints, Problems.Metadata(handler), loads)
     return problem, cell_map
 end
+
+include("binary.jl")
 
 function run_native(request, emit; solver_type=DirectSolver)
     VERSION == v"1.10.10" && pkgversion(TopOpt) == v"0.14.0" || error("Unqualified Julia/TopOpt version")
@@ -88,17 +108,38 @@ function run_native(request, emit; solver_type=DirectSolver)
         filter_radius_m=Float64(request["filter_radius_m"]), solver_type)
     emit((; kind="reference", densities=prepared.physical(prepared.reference).x[cell_map],
         mass_kg=prepared.reference_mass_kg, reference_mass_kg=prepared.reference_mass_kg,
-        displacements_m=[sqrt(maximum(measure(prepared.reference))) for measure in prepared.squared_displacements]))
+        displacements_m=prepared.responses(prepared.reference)))
     result = solve_mass(prepared; max_iterations=Int(request["max_iterations"]),
         progress=event -> emit((; kind="progress", mass_kg=event.normalized_mass * prepared.reference_mass_kg,
             infeasibility=event.infeasibility)),
         candidate=free -> emit((; kind="iteration", densities=prepared.physical(free).x[cell_map],
             mass_kg=prepared.mass(free), reference_mass_kg=prepared.reference_mass_kg,
-            displacements_m=[sqrt(maximum(measure(free))) for measure in prepared.squared_displacements])))
+            displacements_m=prepared.responses(free))))
+    binary = nothing
+    reconstruction_error = nothing
+    if result.converged && result.feasible
+        first_threshold = Float64(get(request, "reconstruction_threshold", 0.65))
+        isfinite(first_threshold) && 0 < first_threshold <= 1 || error("Invalid reconstruction threshold")
+        for attempt in 0:8
+            threshold = first_threshold * 0.8^attempt
+            try
+                trial = reanalyse_binary(request, result.densities[cell_map], threshold; solver_type)
+                if trial.feasible
+                    binary = (; trial.threshold, trial.mass_kg, trial.displacements_m)
+                    reconstruction_error = nothing
+                    break
+                end
+                reconstruction_error = "Binary displacement limit exceeded at threshold $threshold"
+            catch failure
+                failure isa InterruptException && rethrow()
+                reconstruction_error = sprint(showerror, failure)
+            end
+        end
+    end
     emit((; kind="result", densities=result.densities[cell_map], mass_kg=result.mass_kg,
         reference_mass_kg=result.reference_mass_kg, displacements_m=result.displacements_m,
         violations=result.violations, feasible=result.feasible, converged=result.converged,
-        kkt_residual=result.kkt_residual, publishable=false))
+        kkt_residual=result.kkt_residual, binary, reconstruction_error, publishable=false))
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

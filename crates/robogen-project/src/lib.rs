@@ -1425,6 +1425,8 @@ part Body { material: PLA; base = extrude(Profile, DEPTH); }"#;
                 feasible: false,
                 converged: false,
                 kkt_residual: None,
+                binary: None,
+                reconstruction_error: None,
             },
         );
         let mesh = project

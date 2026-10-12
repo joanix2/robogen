@@ -273,3 +273,14 @@ refusees explicitement. Voir ADR-012 et examples/topology_manual/README.md.
 Project/desktop et la composition des operations aval restent a raccorder : leur
 E330 n'est pas retire par ce chemin d'execution explicite. Aucun type de kernel,
 solveur tiers ou UI n'est ajoute au modele semantique partage.
+
+
+## Diagnostic de reconstruction minimum de masse (iteration 17)
+
+TopOpt conserve la responsabilite de la connexite des densites seuillees et de la
+reanalyse Julia sur cellules materielles seules. MassDiagnostic peut porter un
+BinaryMassDiagnostic avec seuil/masse/deplacements distincts du champ gris ; Rust
+verifie les invariants de transport. UI ne fait que proposer son affichage.
+Ce DTO ne rejoint pas les meshes CAD exportables ni TopologyReport : verifier une
+liaison par faces et ses deplacements ne prouve pas encore une frontiere manifold
+manufacturable ou des interfaces servo mesurees. Voir ADR-008.

@@ -1677,6 +1677,26 @@ impl RoboGenUi {
                                 Color32::from_rgb(255, 190, 100),
                                 "Champ de densité · non validé pour fabrication",
                             );
+                            if let Some(binary) = &diagnostic.binary {
+                                ui.label(format!(
+                                    "Solide connecté réanalysé : {:.3} g · seuil {:.4}",
+                                    binary.mass.kilograms() * 1000.0, binary.threshold
+                                ));
+                                for (id, displacement) in &binary.displacements {
+                                    let name = specification.load_cases.iter()
+                                        .find(|case| case.id == *id)
+                                        .map(|case| case.name.as_str()).unwrap_or("Cas");
+                                    ui.label(format!("{name} · solide : {:.6} mm", displacement.millimetres()));
+                                }
+                                if ui.button("Afficher le solide réanalysé").clicked() {
+                                    self.density_reference = false;
+                                    self.density_threshold = binary.threshold;
+                                    diagnostic_view_changed = true;
+                                }
+                            }
+                            if let Some(reason) = &diagnostic.reconstruction_error {
+                                ui.label(format!("Reconstruction refusée : {reason}"));
+                            }
                             ui.horizontal(|ui| {
                                 diagnostic_view_changed |= ui
                                     .selectable_value(&mut self.density_reference, false, "Calcul")
@@ -1695,6 +1715,47 @@ impl RoboGenUi {
                                         .text("Seuil visuel"),
                                 )
                                 .changed();
+                            if let Ok(connection) = diagnostic
+                                .connectivity(self.density_threshold, self.density_reference)
+                            {
+                                let connected = connection.preserved_components == 1;
+                                ui.colored_label(
+                                    if connected {
+                                        MUTED
+                                    } else {
+                                        Color32::from_rgb(255, 150, 100)
+                                    },
+                                    format!(
+                                        "{} composante(s) · zones conservées {}",
+                                        connection.components,
+                                        if connected {
+                                            "reliées"
+                                        } else {
+                                            "non reliées"
+                                        }
+                                    ),
+                                );
+                                if !connected {
+                                    if let Ok(Some(threshold)) =
+                                        diagnostic.connection_threshold(self.density_reference)
+                                    {
+                                        if ui
+                                            .button(format!(
+                                                "Afficher au seuil de connexion ({threshold:.4})"
+                                            ))
+                                            .clicked()
+                                        {
+                                            self.density_threshold = threshold;
+                                            diagnostic_view_changed = true;
+                                        }
+                                    } else {
+                                        ui.label("Aucun seuil ne relie les zones conservées.");
+                                    }
+                                }
+                                ui.small(
+                                    "La connexion visuelle ne valide pas la résistance du solide.",
+                                );
+                            }
                             ui.label(format!(
                                 "Masse du champ calculé : {:.3} g",
                                 diagnostic.mass.kilograms() * 1000.0
@@ -1712,7 +1773,11 @@ impl RoboGenUi {
                             ));
                             ui.label(if diagnostic.finished {
                                 if diagnostic.converged && diagnostic.feasible {
-                                    "Convergence numérique atteinte · reanalyse absente"
+                                    if diagnostic.binary.is_some() {
+                                        "Convergence et réanalyse du solide · fabrication non validée"
+                                    } else {
+                                        "Convergence numérique atteinte · solide non validé"
+                                    }
                                 } else {
                                     "Arrêt sans validation des critères numériques"
                                 }
@@ -3114,6 +3179,15 @@ mod tests {
             .next()
             .ok_or("missing diagnostic")?;
         assert_eq!(diagnostic.compute_backend, compute_backend);
+        let connected_threshold = diagnostic
+            .connection_threshold(false)?
+            .ok_or("expected a threshold connecting preserved fixture regions")?;
+        assert_eq!(
+            diagnostic
+                .connectivity(connected_threshold, false)?
+                .preserved_components,
+            1
+        );
         assert!(diagnostic.finished, "{:?}", state.diagnostics);
         assert!(snapshot.topology.is_empty());
         assert!(live_geometry);

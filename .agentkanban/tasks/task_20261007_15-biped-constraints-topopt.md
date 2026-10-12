@@ -1579,3 +1579,23 @@ Ce checkpoint ne cloture ni le ticket ni la qualification mecanique et ne pousse
 rien vers un depot distant. Revue de l'index et verification Git avant commit.
 
 ### user
+
+### agent
+
+## Iteration 17 - Reproduire et corriger l'echec de l'optimisation
+
+Demandes utilisateur : « fait le alors » puis « L'algorithme d'optimisation
+topologique ne fonctionne pas. » Etat relu : checkpoint 90bd834, diagnostic
+minimum de masse CPU/CUDA deja integre et hypotheses PLA autorisees. Ne pas
+repartir de l'ancien apercu sans supports ni perdre les estimations acceptees.
+
+Plan : reproduire les trois echecs de qualification, verifier les gradients
+composes filtre/projecteur/deplacement et le traitement des contraintes avant
+modification du solveur. Comparer les variantes offertes par la bibliotheque
+verrouillee sans changer les limites mecaniques ou les tolerances. Reproduire
+ensuite sur le tibia declare, corriger les defauts identifies et verifier le
+chemin natif. Reconstruction/reanalyse/publication restent des acceptations
+separees ; aucun candidat gris non faisable ne deviendra une piece par affichage.
+Les deux fichiers non suivis du futur ticket 16 RL sont hors perimetre.
+
+### user

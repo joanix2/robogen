@@ -1,10 +1,12 @@
 # TopOpt.jl native diagnostics (not qualified for publication)
 
-Status, 2026-10-08: **not qualified**. The compliance-bound smoke test passes;
-the filtered, two-case nodal-displacement test fails feasibility and convergence.
-Iteration 13 connects this kernel to Project for non-exportable diagnostics only.
-It does not qualify the backend or allow publication of its density fields.
-LeftShinSupport in mini_biped remains the delivery target, not these test fixtures.
+Status, iteration 17: the previously failing displacement qualification now
+passes using a conservative smooth displacement envelope. Binary candidates
+are reconstructed and independently reanalysed with empty cells removed.
+The native UI offers their explicit display. They remain diagnostic geometry,
+not manufacturing exports: manifold surface checks, real attachment validation,
+stress/frequency/manufacturing capabilities remain separate work.
+LeftShinSupport in mini_biped is the demonstrated target.
 
 ## Native Integration
 
@@ -148,7 +150,7 @@ BACKEND=crates/robogen-topopt/backends/topopt-jl
 "$JULIA" --startup-file=no --project="$BACKEND" "$BACKEND/qualification.jl"
 ```
 
-Expected qualification exit code currently **1**, not a passing release gate.
+Expected qualification exit code is now **0** (iteration 17).
 The first dependency compilation takes several minutes. Process supervision and
 timeouts are implemented for the native path; portable deployment is not.
 
@@ -181,7 +183,7 @@ warning also occurred; it is not proof of a numerical failure or a passed gate.
 | Functions/temperature.jl | 33f82693fbeaee89149ea8454e8b9cb705b02296df3877c6e4e8964d4ac93306 |
 | CheqFilters/CheqFilters.jl | 142f9d3b8eaba4bc475f60275bfc750ec90fc0e0488fb1b45276c15a0e1fcc38 |
 
-## Measured contracts
+## Historical measurements before iteration 17
 
 mass.jl composes TopOpt's volume, displacement and filter functions with MMA.
 For homogeneous material, minimizing volume minimizes mass. Displacement limits
@@ -232,3 +234,51 @@ The stress tutorial's relaxed feasible values are not final-solid stress proof.
 The next numerical investigation should check composed adjoint gradients against
 finite differences and constraint duplication/nonsmooth maxima before accepting
 any further solver tuning. Do not weaken the existing failing qualification.
+
+## Iteration 17: convergence and connected reconstruction
+
+The old raw maximum switched between tied critical nodes. Directional finite
+differences of the complete mass/filter/projector/displacement composition agreed
+(<4e-8 relative), while MMA02 and another dual optimizer still failed. Replacing
+the raw maximum by the unnormalized p=16 norm of squared displacements divided
+by their squared limits passes: 29 iterations, KKT 9.6894e-5, unchanged tolerances
+and physical limits. This is a **conservative surrogate**: it bounds every node,
+but is not mesh independent or a proof of global optimality. Reported violations
+remain those of the exact maximum. All cases are independently checked.
+
+The regression qualification now includes bounds, ties, extreme scales, composed
+gradients and cached diagnostic responses after forward/adjoint solves. Callback
+response reuse is outside AD, requires matching physical densities and a prior
+forward solve, and otherwise computes the requested response normally.
+
+`binary.jl` reconstructs exact occupied cells, rejects detached components and
+lost preserved regions, and removes empty elements AND unused nodes before FEM.
+`binary_qualification.jl` compares that reduced mesh to an independent full-grid
+half-height model; it also checks load scaling, mass and refusal cases.
+
+After numerical convergence, the native path tries at most nine thresholds:
+`t * 0.8^i`, i=0..8, starting at the selected reconstruction threshold. The first
+single-component candidate satisfying every declared displacement is returned
+with its actual threshold and binary mass. No bridges are invented and no islands
+are deleted. Failure is reported; no unverified candidate is exported. This
+bounded reconstruction search is not a discrete minimum-mass optimizer.
+
+Rust independently checks the binary occupancy, face connectivity, integrated
+mass, case counts and displacement limits. The UI reports the reconstructed mass
+separately from gray-field mass and offers **Afficher le solide réanalysé**.
+The visual density threshold also reports disconnected preserved regions and an
+explicit proposed connection threshold; this proposal alone is not FEM approval.
+
+Reproduce binary qualification with the same Julia environment:
+
+```sh
+"$JULIA" --startup-file=no --project="$BACKEND" "$BACKEND/binary_qualification.jl"
+```
+
+Actual tibia run with unchanged 28x24x36 grid, 12 mm filter, PLA and loads:
+reference density mass 406.868 g; converged field 40.23988 g, KKT 8.8124e-5;
+maximum displacements 0.425656 and 0.455829 mm against 0.5 mm.
+The 0.35 visual threshold fragments this field. An explicit 0.25 reconstruction
+has 3127 cells, 4694 nodes, one component, 58.20067 g and independently reanalysed
+displacements 0.042848 and 0.034614 mm. At 0.20 it has 4170 cells and 77.61330 g.
+These are estimated PLA/ideal-transfer hypotheses, not measured servo attachments.
