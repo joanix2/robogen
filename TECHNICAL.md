@@ -1,5 +1,31 @@
 # RoboGen technical notes
 
+## Current backend status (2026-10-20)
+
+Julia project sources, environment manifests, viewer, transport and subprocess
+launch code have been removed by explicit user request, recorded in ADR-014.
+Minimum-mass CPU/CUDA computation is unavailable: UI launch is disabled and API/
+worker/CLI calls return diagnostics without results or export. Rust stiffness
+optimization is retained. No Python replacement or RL runtime is installed.
+OpenCode/Oh My OpenAgent 5.1.38 on the authorized DeepSeek-v4-pro provider
+completed audit `ses_ea6243118ffeG4Fc9WGSP2qvxN` (exit 0, 273740 ms) and final
+review `ses_ea61f65aaffe8pFEKwzEkb8STJ` (exit 0, 200442 ms, no blocking findings).
+Both were read-only; parent/native specialists implemented and verified changes.
+These replace the earlier insufficient-balance attempt as current session evidence.
+
+Final removal validation: workspace fmt, Clippy/all-targets/-D warnings,
+163 Rust tests passed with zero ignored, desktop/CLI builds, four Python
+architecture tests, boundary checker, Ruff and actionlint passed locally.
+A CLI minimum-mass request failed with source-located E340 and created no STL.
+The rebuilt native client displayed the disabled minimum-mass path for complete
+inputs; see [capture](docs/screenshots/mass-backend-unavailable-20261020.png).
+Graphify was refreshed locally without LLM extraction (1475 nodes, 3374 edges,
+139 communities). GitHub CI was not run by this local validation.
+
+The dated Julia/CUDA sections below are historical measurements only; they do
+not describe current capabilities. Ignored local downloads are left untouched
+and no application code launches them.
+
 ## Native CUDA Mass Solver (2026-10-08, Iteration 16)
 
 Optimisation now has an explicit CPU / GPU CUDA choice for minimum mass, CPU by
@@ -11,7 +37,7 @@ Julia loads the optional adapter only for CUDA requests. CPU code is retained.
 CUDA 6.0.0 / Krylov 0.8.4 implement sparse preconditioned CG in Float64, forward
 and adjoint, with validated true residual/backward error and bounded refinement.
 CUDA 6.4.2/GPUCompiler 2.13 did not compile on Julia 1.10.10. The working versions
-are pinned; see ADR-008 and backends/topopt-jl/README.md for the explicit roundoff
+are pinned; see ADR-008 and the removed backend qualification notes (Git history) for the explicit roundoff
 criterion and reproducible benchmark. No GPU types cross the Rust boundary.
 
 Actual left-shin grid 24192 cells/80475 DOFs, unchanged PLA/loads/filter, two full
@@ -136,7 +162,7 @@ describe historical states.
 TopOpt.jl 0.14.0 is installed with Julia 1.10.10 in ignored target/topopt-tools.
 The experimental kernel, dependency lock, source-checked compatibility fixes and
 reproduction commands live in
-[the backend qualification directory](crates/robogen-topopt/backends/topopt-jl/README.md).
+the removed backend qualification directory (available in Git history).
 No Rust dependency, product dispatch, source schema or desktop behavior changed.
 The homogeneous-mass/compliance smoke test passes seven assertions. Direct nodal
 displacement with filtered masks and two independent force cases passes thirteen
@@ -226,6 +252,51 @@ cargo test --workspace
 During initial construction in the provided environment, Rust was bootstrapped
 locally under ignored `.cargo-home/` and `.rustup-local/` directories because no
 toolchain was initially present.
+
+### Modular refactor and architecture checks (2026-10-20)
+
+The structural refactor preserves the 21-crate workspace and all existing public
+imports. Project separates document history, snapshot contracts, manifest IO,
+projection and optimization orchestration. UI separates feature views and shared
+presentation helpers. The mass adapter separates diagnostics, protocol validation
+and historical process execution. See [current architecture](docs/architecture/CURRENT.md)
+and [ADR-013](docs/adr/ADR-013-modular-application-boundaries.md).
+
+Production dependency boundaries are checked without compiling or networking:
+
+```sh
+python3 -m unittest discover -s scripts/tests
+python3 scripts/check_architecture.py
+```
+
+These checks run in CI before the existing Rust gates. The Python checker uses
+only the standard library (Python >=3.11); it is development tooling, not a new
+scientific backend. Local lint/format checks are `ruff check scripts` and
+`ruff format --check scripts`. Numerical settings, physical hypotheses, wire
+schema, cancellation/revision filtering and export guards are unchanged.
+
+The target is Rust host plus qualified Python scientific adapters, with Julia
+excluded from the future stack. The legacy Julia path was initially isolated by the structural step and was
+subsequently removed under ADR-014 at the user's request. pyMOTO/MuJoCo/PPO are not installed or implemented here.
+The mini-biped still requires actual hardware and physical input qualification.
+
+Oh My OpenAgent 5.1.38 was invoked with the user's explicit DeepSeek authorization.
+Session `ses_ea63790c1ffeXxEUB3v1zZ9NjP` failed on its first request with
+`Insufficient Balance` (exit 1); it made no source edits. Disjoint native sessions
+performed Project, UI and mass extraction under parent integration instead.
+No alternate external provider was configured. Local execution logs are under
+ignored `.agentkanban/logs/refactor-17`; transient `.omo/run-continuation` is ignored.
+
+Verification of the combined refactor: `cargo fmt --check`,
+`cargo clippy --workspace --all-targets --offline -- -D warnings`,
+`cargo test --workspace --offline` (161 passed, 8 scientific qualifications
+ignored), and desktop/CLI builds passed. Four architecture unit tests, the
+21-crate/36-edge check, Ruff and actionlint also passed locally. GitHub-hosted
+CI was not executed by this local run.
+Native X11 verification loaded the mini-biped through Exemples and navigated
+Design/Optimization/Learning after compilation completed. The 1440x831 captures
+in [screenshots](docs/screenshots/README.md) show preparation overlays, blocked
+incomplete supports and unavailable training. They do not qualify mechanics/RL.
 
 ### Local development tools
 

@@ -140,112 +140,6 @@ fn estimated_biped_shin_projects_pla_and_independent_loads()
 }
 
 #[test]
-#[ignore = "requires the pinned local Julia runtime; executes the real subprocess"]
-fn native_mass_process_returns_non_publishable_densities() -> Result<(), Box<dyn std::error::Error>>
-{
-    let mut request = request()?;
-    request.specification.objective = Objective::MinimizeMass;
-    request.specification.constraints = vec![Constraint {
-        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.1)),
-        span: request.specification.span,
-    }];
-    let mut settings = settings();
-    settings.max_iterations = 2;
-    let mut events = Vec::new();
-    let result =
-        robogen_topopt::mass::diagnose_mass(&request, &settings, &|| false, &mut |event| {
-            events.push(event.clone())
-        })?;
-    assert!(result.finished);
-    assert!(!result.converged);
-    assert_eq!(result.id, request.specification.id);
-    assert_eq!(result.document_revision, 107);
-    assert_eq!(result.densities.len(), 96);
-    assert!(result.mass.kilograms() < result.reference_mass.kilograms());
-    assert!(!events.first().ok_or("missing reference")?.finished);
-    assert!(result.history.len() >= 2);
-    assert!(
-        events
-            .iter()
-            .any(|event| !event.finished && event.densities != event.reference_densities)
-    );
-    assert!(result.cases[0].1.metres() > 0.0);
-    assert!((result.cases[0].1.metres() - result.cases[1].1.metres()).abs() < 1e-12);
-    let Err(cancelled) =
-        robogen_topopt::mass::diagnose_mass(&request, &settings, &|| true, &mut |_| {})
-    else {
-        return Err("cancelled run launched".into());
-    };
-    assert_eq!(cancelled.diagnostic.code, "E345");
-    let started = std::time::Instant::now();
-    let Err(cancelled) = robogen_topopt::mass::diagnose_mass(
-        &request,
-        &settings,
-        &|| started.elapsed() > std::time::Duration::from_millis(200),
-        &mut |_| {},
-    ) else {
-        return Err("startup cancellation ignored".into());
-    };
-    assert_eq!(cancelled.diagnostic.code, "E345");
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires the pinned Julia/CUDA runtime and an NVIDIA GPU"]
-fn native_mass_cuda_process_returns_non_publishable_densities()
--> Result<(), Box<dyn std::error::Error>> {
-    let mut request = request()?;
-    request.specification.objective = Objective::MinimizeMass;
-    request.specification.constraints = vec![Constraint {
-        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.01)),
-        span: request.specification.span,
-    }];
-    let mut settings = settings();
-    settings.compute_backend = robogen_topopt::execution::ComputeBackend::Cuda;
-    settings.max_iterations = 2;
-    let result = robogen_topopt::mass::diagnose_mass(&request, &settings, &|| false, &mut |_| {})?;
-    assert_eq!(result.compute_backend, settings.compute_backend);
-    assert!(result.finished);
-    assert!(!result.converged);
-    assert_eq!(result.cells, settings.cells);
-    assert!(result.mass.kilograms() < result.reference_mass.kilograms());
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires the pinned Julia runtime; measures an actually refined FEM grid"]
-fn native_mass_refined_grid_keeps_physics_and_resolves_smaller_cells()
--> Result<(), Box<dyn std::error::Error>> {
-    let mut request = request()?;
-    request.specification.objective = Objective::MinimizeMass;
-    request.specification.constraints = vec![Constraint {
-        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.1)),
-        span: request.specification.span,
-    }];
-    let mut settings = settings();
-    settings.cells = [48, 16, 8];
-    settings.max_iterations = 2;
-    let started = std::time::Instant::now();
-    let result = robogen_topopt::mass::diagnose_mass(&request, &settings, &|| false, &mut |_| {})?;
-    assert_eq!(result.cells, [48, 16, 8]);
-    assert_eq!(result.densities.len(), 6144);
-    assert!(result.finished);
-    assert!((result.reference_mass.kilograms() - 0.2592).abs() < 1e-10);
-    assert!(result.mass.kilograms() < result.reference_mass.kilograms());
-    assert!((result.cases[0].1.metres() - result.cases[1].1.metres()).abs() < 1e-12);
-    println!(
-        "Refined FEM: {:?}, 2.5 mm cells, {:.3} g reference -> {:.3} g candidate, {:.1}s, converged={}",
-        result.cells,
-        result.reference_mass.kilograms() * 1000.0,
-        result.mass.kilograms() * 1000.0,
-        started.elapsed().as_secs_f64(),
-        result.converged
-    );
-    Ok(())
-}
-
-#[test]
 fn physical_cell_size_refines_mass_projection_without_relaxing_cpu_budget()
 -> Result<(), Box<dyn std::error::Error>> {
     use robogen_topopt::execution::resolution_for_cell_size;
@@ -666,35 +560,49 @@ fn dsl_topology_executes_reanalyses_and_exports_actual_geometry()
 }
 
 #[test]
-#[ignore = "requires local Julia; complete minimum-mass and binary reanalysis transport"]
-fn native_mass_converged_solid_preserves_connections_and_case_limits()
+fn minimum_mass_is_unavailable_on_every_compute_backend_without_events()
+-> Result<(), Box<dyn std::error::Error>> {
+    use robogen_topopt::{execution::ComputeBackend, mass::diagnose_mass};
+    assert!(!std::hint::black_box(
+        robogen_topopt::mass::MASS_BACKEND_AVAILABLE
+    ));
+    let mut request = request()?;
+    request.specification.objective = Objective::MinimizeMass;
+    for backend in [ComputeBackend::Cpu, ComputeBackend::Cuda] {
+        let mut settings = settings();
+        settings.compute_backend = backend;
+        let mut events = 0;
+        let error = diagnose_mass(&request, &settings, &|| false, &mut |_| events += 1)
+            .err()
+            .ok_or("minimum-mass engine unexpectedly ran")?;
+        assert_eq!(error.diagnostic.code, "E348");
+        assert_eq!(error.diagnostic.span, request.specification.span);
+        assert!(error.diagnostic.message.contains("unavailable"));
+        assert_eq!(events, 0);
+        let error = diagnose_mass(&request, &settings, &|| true, &mut |_| events += 1)
+            .err()
+            .ok_or("cancellation not reported")?;
+        assert_eq!(error.diagnostic.code, "E345");
+        assert_eq!(error.diagnostic.span, request.specification.span);
+        assert_eq!(events, 0);
+    }
+    Ok(())
+}
+
+#[test]
+fn stiffness_entry_point_refuses_minimum_mass_before_projection()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut request = request()?;
     request.specification.objective = Objective::MinimizeMass;
-    request.specification.constraints = vec![Constraint {
-        kind: ConstraintKind::MaxDisplacement(Length::from_millimetres(0.001)),
-        span: request.specification.span,
-    }];
-    let result =
-        robogen_topopt::mass::diagnose_mass(&request, &settings(), &|| false, &mut |_| {})?;
-    assert!(result.finished && result.converged && result.feasible);
-    let solid = result
-        .binary
-        .as_ref()
-        .ok_or_else(|| format!("missing solid: {:?}", result.reconstruction_error))?;
-    assert_eq!(result.connectivity(solid.threshold, false)?.components, 1);
-    assert_eq!(
-        result
-            .connectivity(solid.threshold, false)?
-            .preserved_components,
-        1
-    );
-    assert!(solid.mass.kilograms() > 0.0);
-    assert_eq!(solid.displacements.len(), result.cases.len());
-    for ((id, value), (expected, _, limit)) in solid.displacements.iter().zip(&result.cases) {
-        assert_eq!(id, expected);
-        assert!(value.metres() <= limit.metres());
-    }
-    assert_eq!(result.document_revision, request.document_revision);
+    let mut events = 0;
+    let error = execute_topology(&request, &settings(), &FaerSolver, &|| false, &mut |_| {
+        events += 1
+    })
+    .err()
+    .ok_or("minimum mass unexpectedly accepted")?;
+    assert_eq!(error.diagnostic.code, "E340");
+    assert_eq!(error.diagnostic.span, request.specification.span);
+    assert!(error.diagnostic.message.contains("unavailable"));
+    assert_eq!(events, 0);
     Ok(())
 }

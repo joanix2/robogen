@@ -134,3 +134,60 @@
   equivalence masse/deplacements/gradients verifiee, candidat non converge.
   Tests GPU/transport/UI et gates Rust passent ; aucun export mecanique valide.
   Utilisateur demande commit checkpoint ; futur ticket RL exclu, pas de cloture.
+
+- 2026-10-20 : ticket 17 de cadrage de refonte et standards utilisateur ajoutés.
+  L'utilisateur demande de réfléchir avant toute session d'édition autonome,
+  exclut Julia de la cible, et exige un MVP humanoïde imprimable avec les trois
+  fonctions intégrées : génération DSL, TopOpt et locomotion par RL. Rust hôte
+  + adaptateurs Python est une proposition, pas encore une décision de stack.
+  Matériel de référence à préciser ; marche simulée ne prouve pas marche réelle.
+  Baseline cargo test --workspace --offline passée, qualifications ignorées
+  Julia/CUDA non relancées. Aucun code métier refactorisé ni session OMO lancée.
+
+- 2026-10-20 : pour le MVP intégré DSL/TopOpt/RL, l'utilisateur choisit explicitement
+  de reprendre le mini-bipède actuel et de préciser ses composants : 14 servos,
+  carte, batterie, caméra, 11 supports à préparer. Le cadrage technique continue.
+
+- 2026-10-20 : « lance la » autorise la tranche structurelle du ticket 17.
+  ADR-013 acceptée : Rust hôte, Python scientifique à qualifier ; Julia exclu
+  de la cible, adaptateur historique isolé mais non retiré. Consentement
+  DeepSeek explicite reçu ; OMO 5.1.38 session
+  ses_ea63790c1ffeXxEUB3v1zZ9NjP échoue Insufficient Balance dès la première
+  requête. Aucun audit ni code produit par OMO ; fallback natif disjoint
+  Project/UI/masse terminé. Façades publiques et paramètres scientifiques
+  inchangés ; sources de ces périmètres sous 350 lignes. Contrôle Cargo Python
+  standard en CI : 21 crates, 36 arêtes de production, cycles/frontières gardés.
+  Fmt/Clippy workspace, 161 tests réussis et huit qualifications ignorées,
+  builds desktop/CLI et quatre tests de frontières passent. Graphify local
+  code/Cargo actualisé : 1490 nœuds/3478 arêtes/123 communautés, sans LLM.
+  Ticket global reste ouvert pour qualification/remplacement et objectif MVP ;
+  aucun commit de ticket partiel, aucun push.
+
+- Ticket 17, preuve native finale : trois captures refactor-*-20261020.png dans
+  docs/screenshots, 1440x831, mini-bipède chargé via Exemples et compilation finie.
+  Design montre 28 instances ; Optimisation bloque CameraSupport incomplet ;
+  Apprentissage conserve simulation/training indisponibles. Captures inspectées,
+  processus de test fermé ; aucun nouveau résultat scientifique revendiqué.
+
+- 2026-10-20, ticket 17 iteration 5 : utilisateur autorise le retrait immédiat
+  de Julia sans remplaçant et confirme les crédits DeepSeek. ADR-014 remplace
+  le maintien transitoire ADR-013 : sources/manifests/viewer Julia et transport/
+  superviseur Rust supprimés, tempfile retiré de TopOpt et serde_json dev-only.
+  Port diagnose_mass conservé : E348 indisponible, E345 annulation, zéro événement.
+  Project conserve E330 contenant E348 avec span ; CLI execute_topology E340
+  avant projection ; aucune substitution par la rigidité. Capability false
+  désactive lancement/réglages CPU/CUDA en UI, DTO et préparations conservés.
+  Solveur Rust de rigidité conservé. Qualifications Julia supprimées avec le
+  moteur, remplacées par tests actifs API/worker/UI. Validation finale : fmt,
+  Clippy workspace, 163 tests réussis/0 ignoré, builds desktop/CLI, quatre tests
+  Python, architecture21/36, Ruff et actionlint passent. CLI refuse sans STL ;
+  capture native mass-backend-unavailable-20261020.png inspectée, processus fermé.
+  OMO/DeepSeek audit ses_ea6243118ffeG4Fc9WGSP2qvxN et revue
+  ses_ea61f65aaffe8pFEKwzEkb8STJ réussis ; revue sans point bloquant, sessions
+  lecture seule, implémentation parent/spécialiste natif. Graphe actualisé
+  1475 nœuds/3374 arêtes/139 communautés sans LLM. Aucun backend Python ni RL
+  qualifié ; ces objectifs restent futurs, aucun résultat scientifique inventé.
+
+- Ticket 17 : l'utilisateur demande explicitement un commit de checkpoint après
+  livraison de la refonte/retrait Julia. Autorisation de consigner la tranche
+  validée sans clore les objectifs Python/MVP encore ouverts ; aucun push.

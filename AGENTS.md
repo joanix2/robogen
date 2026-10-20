@@ -178,3 +178,11 @@ Handoff: provides backend-neutral contract suites and reproducible failure cases
 For a cross-role vertical slice, one agent owns the user-visible outcome and requests narrow changes from specialists. The owner records input/output contracts, revisions and failure states before implementation. A specialist must not bypass another crate to finish a demo; use a small explicit port or return the boundary decision to ARCHITECT.
 
 When replacing a backend, keep the old adapter until the new one passes the same contract suite, then invalidate generated caches whose metadata names the old backend. Persistent migrations require fixtures and a documented rollback or backup path.
+
+
+## Engineering standards
+
+Apply [the user-supplied engineering standards](docs/engineering/STANDARDS.md)
+when refactoring. Preserve the Kanban workflow, existing crate contracts and
+scientific acceptance gates. Stack migrations require an explicit direction;
+Python-specific guidance does not silently replace the existing Rust application stack; Julia was removed under ADR-014.

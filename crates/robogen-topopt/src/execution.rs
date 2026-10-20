@@ -160,7 +160,7 @@ pub fn prepare_topology(
     if settings.compute_backend == ComputeBackend::Cuda && spec.objective != Objective::MinimizeMass
     {
         return Err(error(
-            "CUDA is available only for experimental minimize_mass diagnostics",
+            "Stiffness projection requires CPU settings; no CUDA engine is connected",
         ));
     }
     if cancelled() {
@@ -572,15 +572,14 @@ pub fn execute_topology(
     cancelled: &dyn Fn() -> bool,
     progress: &mut dyn FnMut(ExecutionProgress<'_>),
 ) -> Result<ComputedTopology, ExecutionError> {
-    let prepared = prepare_topology(request, settings, cancelled, progress)?;
     let span = request.specification.span;
-    if request.specification.objective != Objective::MaximizeStiffness {
-        return Err(failure(
-            "E340",
-            span,
-            "CPU backend does not implement minimize_mass",
-        ));
+    if cancelled() {
+        return Err(failure("E345", span, "Topology execution cancelled"));
     }
+    if request.specification.objective != Objective::MaximizeStiffness {
+        return Err(failure("E340", span, crate::mass::MASS_BACKEND));
+    }
+    let prepared = prepare_topology(request, settings, cancelled, progress)?;
     let optimization = optimize_grid(&prepared.grid, solver, cancelled, &mut |entry| {
         progress(ExecutionProgress::Optimization(entry))
     })

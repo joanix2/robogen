@@ -159,3 +159,32 @@ Biped support preparation, 2026-10-08 (iteration 10):
   The client was identified by PID, captured without image rescaling/compositing
   and left open. XTest menu/tab clicks produced no visible navigation; automated
   UI tests, not this capture, verify selection, undo/redo and export/launch guards.
+
+Modular refactor, 2026-10-20 (ticket 17):
+
+- [Design](refactor-design-20261020.png): mini-biped loaded through Exemples,
+  compilation finished, 28 taxonomy instances (17 components and 11 support
+  preparations). Domain/preserve/keepout overlays remain distinct.
+- [Optimization](refactor-optimization-20261020.png): CameraSupport selected,
+  incomplete physics reported, launch disabled and no result published.
+- [Learning](refactor-learning-20261020.png): same mini-biped preview, simulation
+  and training unavailable, no metrics or recorded trajectory.
+
+All three captures are actual 1440x831 X11 clients of the rebuilt binary,
+visually inspected after native menu/tab clicks. No resizing or compositing.
+Eframe used the NVIDIA RTX 3060 Vulkan driver; this verifies presentation,
+not CUDA computation, physical simulation, printability or RL locomotion.
+The temporary verification process was closed after capture.
+
+Julia removal, 2026-10-20 (ADR-014):
+
+- [Unavailable minimum-mass engine](mass-backend-unavailable-20261020.png):
+  rebuilt native X11 client, 1440x831, complete manual-support preparation
+  changed to minimum mass. The explicit unavailable label, disabled CPU/CUDA
+  selection/settings and disabled launch are visible. Only preparation outlines
+  are shown; no optimized mesh or scientific metrics are claimed. Captured after
+  native tab navigation and visually inspected, without resizing/compositing.
+  The verification process was closed afterward.
+
+Older Julia/CUDA screenshots above are historical and do not represent the
+current backend capabilities.

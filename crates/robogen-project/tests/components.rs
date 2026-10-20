@@ -231,73 +231,6 @@ fn topology_publishes_reanalysed_mesh_and_report_in_local_frame() -> Result<(), 
 }
 
 #[test]
-#[ignore = "requires the pinned local Julia runtime"]
-fn native_mass_worker_keeps_diagnostics_separate_from_export(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let source = include_str!("../../../examples/topology_manual/main.rgn")
-        .replace("maximize_stiffness", "minimize_mass")
-        .replace("volume_fraction(0.85), max_mass(230 g), ", "");
-    let mut document = SourceDocument::new(source);
-    let part = *document
-        .project()
-        .ok_or("missing project")?
-        .snapshot()
-        .preparation
-        .keys()
-        .next()
-        .ok_or("missing preparation")?;
-    let mut settings = robogen_project::topology_settings();
-    settings.max_iterations = 2;
-    document
-        .start_optimization(part, settings)
-        .map_err(|error| error.message)?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
-    let mut saw_live = false;
-    while document.build_progress().is_some() {
-        saw_live |= document.poll_optimization_progress();
-        document.poll_compilation();
-        if std::time::Instant::now() > deadline {
-            return Err("mass worker timeout".into());
-        }
-        std::thread::park_timeout(std::time::Duration::from_millis(10));
-    }
-    let project = document.project().ok_or("lost project")?;
-    assert!(saw_live);
-    assert_eq!(
-        project.snapshot().optimization_states[&part],
-        robogen_project::OptimizationState::Diagnostic,
-        "{:?}",
-        document.optimization_diagnostics(part)
-    );
-    assert!(project.snapshot().meshes.is_empty());
-    assert!(project.snapshot().topology.is_empty());
-    assert_eq!(project.snapshot().mass_diagnostics.len(), 1);
-    let diagnostic = project
-        .snapshot()
-        .mass_diagnostics
-        .values()
-        .next()
-        .ok_or("no diagnostic")?;
-    assert!(diagnostic.finished);
-    assert!(!diagnostic.converged);
-    let reference = project.diagnostic_mesh(part, 0.35, true)?;
-    let candidate = project.diagnostic_mesh(part, 0.35, false)?;
-    assert!(!candidate.triangles.is_empty());
-    assert!(reference.triangles.len() >= candidate.triangles.len());
-    assert!(project.diagnostic_mesh(part, f64::NAN, false).is_err());
-    document.replace_source(SOURCE.into());
-    assert!(document
-        .project()
-        .ok_or("lost project")?
-        .snapshot()
-        .mass_diagnostics
-        .is_empty());
-    document.cancel_build();
-    assert!(!document.poll_optimization_progress());
-    Ok(())
-}
-
-#[test]
 fn topology_is_semantically_valid_but_never_publishes_placeholder_geometry(
 ) -> Result<(), Vec<Diagnostic>> {
     let model = compile_source(TOPOLOGY_SOURCE)?;
@@ -310,7 +243,8 @@ fn topology_is_semantically_valid_but_never_publishes_placeholder_geometry(
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "E330");
     assert_eq!(errors[0].span, operations[0].span);
-    assert!(errors[0].message.contains("E340"));
+    assert!(errors[0].message.contains("E348"));
+    assert!(errors[0].message.contains("unavailable"));
     Ok(())
 }
 
@@ -609,5 +543,54 @@ fn imports_fail_explicitly_in_compile_and_history_entry_points() -> Result<(), &
         .diagnostics()
         .iter()
         .any(|error| error.code == "E109"));
+    Ok(())
+}
+
+#[test]
+fn unavailable_mass_worker_publishes_failure_without_mesh_or_metrics(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let source = include_str!("../../../examples/topology_manual/main.rgn")
+        .replace("maximize_stiffness", "minimize_mass")
+        .replace("volume_fraction(0.85), max_mass(230 g), ", "");
+    let mut document = SourceDocument::new(source);
+    document.enable_background_compilation()?;
+    let part = *document
+        .project()
+        .ok_or("missing project")?
+        .snapshot()
+        .preparation
+        .keys()
+        .next()
+        .ok_or("missing preparation")?;
+    document
+        .start_optimization(part, robogen_project::topology_settings())
+        .map_err(|error| error.message)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while document.build_progress().is_some() {
+        assert!(!document.poll_optimization_progress());
+        document.poll_compilation();
+        if std::time::Instant::now() > deadline {
+            return Err("worker timeout".into());
+        }
+        std::thread::park_timeout(std::time::Duration::from_millis(1));
+    }
+    let snapshot = document.project().ok_or("lost project")?.snapshot();
+    assert_eq!(
+        snapshot.optimization_states[&part],
+        robogen_project::OptimizationState::Failed
+    );
+    assert!(snapshot.mass_diagnostics.is_empty());
+    assert!(snapshot.topology.is_empty());
+    assert!(snapshot.meshes.is_empty());
+    let errors = document.optimization_diagnostics(part);
+    let span = document
+        .project()
+        .ok_or("lost project")?
+        .topology_operations(part)[0]
+        .span;
+    assert!(errors.iter().any(|error| error.code == "E330"
+        && error.message.contains("E348")
+        && error.message.contains("unavailable")
+        && error.span == span));
     Ok(())
 }

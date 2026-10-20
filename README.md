@@ -6,6 +6,11 @@ simulation/optimisation pipelines are projections of the same semantic model.
 
 ## Current vertical slice
 
+The Julia backend has been removed ([ADR-014](docs/adr/ADR-014-remove-julia-backend.md)).
+Minimum-mass optimization is explicitly unavailable on CPU/CUDA until a replacement
+is qualified. Typed DSL preparations remain editable; Rust fixed-volume stiffness
+optimization remains available. Simulation and RL are still unavailable.
+
 The current milestone provides:
 
 - a native dark desktop shell for Design, Optimisation and Training;
@@ -79,3 +84,8 @@ Quality gates are `cargo fmt --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
 `cargo test --workspace`.
 
+
+
+The implemented module responsibilities and known product limits are documented
+in [the current architecture](docs/architecture/CURRENT.md). CI also checks
+production crate boundaries with `python3 scripts/check_architecture.py`.

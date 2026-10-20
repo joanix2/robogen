@@ -58,8 +58,9 @@ idéalisées. Cela **ne résout pas la géométrie des fixations de 2 mm**. Les 
 de contact exacts sont conservés dans la bibliothèque de préparations, mais ne
 servent pas d'appuis à ce modèle exploratoire du tibia.
 
-Le calcul explicite peut produire un diagnostic natif avec le moteur Julia
-expérimental ; aucun calcul n'est déclenché au chargement. L'export reste interdit.
+Le moteur Julia a été supprimé (ADR-014). La minimisation de masse est
+indisponible, même avec des entrées complètes ; aucun calcul n'est déclenché au
+chargement. Les préparations restent éditables et l'export reste interdit.
 Avant fabrication : montage réel, anisotropie et essais PLA, résistance,
 paramètres d'impression, débattements et étude de convergence sont à vérifier.
 
@@ -157,9 +158,9 @@ la CLI interdisent l'export global de cette scène incomplète.
 ## Données recherchées le 2026-10-08
 
 La première livraison mécanique visée est désormais **LeftShinSupport**. Le
-[prototype TopOpt.jl](../../crates/robogen-topopt/backends/topopt-jl/README.md)
-est installé et exécuté, mais échoue encore à sa qualification de déplacement.
-Il est maintenant raccordé au diagnostic natif, sans publication mécanique.
+prototype Julia exploratoire a été retiré le 2026-10-20 ; sa qualification et
+ses mesures antérieures restent dans l'historique Git. Aucun moteur minimum
+de masse n'est actuellement raccordé.
 Les valeurs constructeur ci-dessous ne sont pas injectées
 dans le DSL : une fiche fabricant ne prouve pas l'identité du composant possédé.
 

@@ -3,6 +3,10 @@
 - Statut : backend CPU historique ; orientation vers bibliotheque externe pour la suite, bascule conditionnelle aux contrats ci-dessous
 - Date : 2026-09-22 ; orientation revisee le 2026-10-08
 
+> Current status (2026-10-20): the Julia/CUDA implementation described below
+> was removed by explicit user request under ADR-014. Its measurements are
+> historical. Rust stiffness remains; minimum-mass computation is unavailable.
+
 ## Contexte
 
 ### Adaptateur CUDA experimental (iteration 16)
@@ -98,7 +102,7 @@ sans nouveau solveur maison. Le test minimum de masse sous compliance passe ;
 le test direct deplacement multi-cas/filtrage echoue encore a la faisabilite et
 convergence a 500 iterations. **Candidat non qualifie, aucune bascule produit.**
 Les resultats et la matrice de capacites sont dans
-[le rapport executable](../../crates/robogen-topopt/backends/topopt-jl/README.md).
+le rapport executable historique (supprimé avec le backend, disponible dans Git).
 Les anciennes formulations de choix ci-dessous sont historiques. Le coeur Rust
 reste inchange ; stress, fabrication et reanalyse externe restent des gates.
 

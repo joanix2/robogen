@@ -1,7 +1,13 @@
 # Architecture de RoboGen
 
-Statut : architecture cible du MVP, avec bilan d'implementation M0  
-Derniere mise a jour : 2026-09-22
+État actuel : Julia supprimé selon ADR-014 ; minimum de masse indisponible.
+Les descriptions Julia/CUDA datées ci-dessous sont historiques. Voir CURRENT.md.
+
+État actuel : voir [CURRENT.md](CURRENT.md), vérifié pour la refonte structurelle
+du 2026-10-20, et [ADR-013](../adr/ADR-013-modular-application-boundaries.md).
+
+Les sections ci-dessous conservent la cible et les bilans historiques des jalons.
+Leurs observations datées ne constituent pas un inventaire actuel du code.
 
 Ajout verifie le 2026-10-08 : tranche M7 autonome autorisee avant cloture M1-M6.
 `robogen-topopt` calcule une poutre a charges manuelles par Hex8/SIMP avec un

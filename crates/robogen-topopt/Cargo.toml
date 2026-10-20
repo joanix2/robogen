@@ -11,11 +11,10 @@ faer = { version = "=0.22.6", default-features = false, features = ["std", "spar
 robogen-domain = { path = "../robogen-domain" }
 robogen-ir = { path = "../robogen-ir" }
 serde = { workspace = true }
-serde_json = "1"
-tempfile = "3"
 thiserror = { workspace = true }
 
 [dev-dependencies]
+serde_json = "1"
 robogen-dsl = { path = "../robogen-dsl" }
 robogen-cad = { path = "../robogen-cad" }
 robogen-export = { path = "../robogen-export" }

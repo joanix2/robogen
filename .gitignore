@@ -15,6 +15,7 @@ generated/
 *.rgnproj.user
 /robogen-export.stl
 /graphify-out/
+/.omo/run-continuation/
 
 # Logs and profiling output.
 /.agentkanban/logs/
