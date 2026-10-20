@@ -1,9 +1,9 @@
 //! Constraint resolution and CAD/preparation snapshot projection.
 
 use crate::topology::part_operations;
-use robogen_cad::{build_part_mesh_cancellable, Mesh};
+use robogen_cad::{build_part_mesh_cancellable, CadKernel, Mesh};
 use robogen_constraints::{ConstraintSolver, NativeConstraintSolver};
-use robogen_domain::{Diagnostic, PartId};
+use robogen_domain::{Diagnostic, ObjectInstanceId, PartId};
 use robogen_ir::{Feature, SemanticModel};
 use std::collections::BTreeMap;
 
@@ -75,4 +75,27 @@ pub(super) fn build_all_meshes(
         }
     }
     (meshes, preparation)
+}
+
+pub(super) fn build_instance_interfaces(
+    model: &SemanticModel,
+    cancelled: &dyn Fn() -> bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> BTreeMap<ObjectInstanceId, Mesh> {
+    let mut interfaces = BTreeMap::new();
+    for instance in model.instances.values() {
+        let mut combined = Mesh::default();
+        for geometry in instance.interfaces.values() {
+            match robogen_cad::NativeCadKernel.solid_cancellable(geometry, cancelled) {
+                Ok(mesh) => combined.append(&mesh),
+                Err(error) => {
+                    diagnostics.push(Diagnostic::error("E320", error.to_string(), instance.span))
+                }
+            }
+        }
+        if !combined.triangles.is_empty() {
+            interfaces.insert(instance.id, combined);
+        }
+    }
+    interfaces
 }

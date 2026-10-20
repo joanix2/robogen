@@ -93,10 +93,16 @@ impl RoboGenUi {
             }
             ranges.push(start..display.triangles.len());
         }
+        let interface_start = display.triangles.len();
+        for mesh in snapshot.instance_interfaces.values() {
+            display.append(mesh);
+        }
+        let interface_range = interface_start..display.triangles.len();
         if display.vertices.is_empty() {
             self.cad_mesh = mesh;
             self.preview_mesh = PreviewMesh::default();
             self.preparation_meshes = std::array::from_fn(|_| PreviewMesh::default());
+            self.instance_interface_meshes = PreviewMesh::default();
             self.diagnostics = vec![EditorDiagnostic {
                 line: 1,
                 column: 1,
@@ -112,6 +118,10 @@ impl RoboGenUi {
                 preview.triangles[ranges[index].clone()].to_vec(),
             )
         });
+        self.instance_interface_meshes = PreviewMesh::new(
+            preview.positions.clone(),
+            preview.triangles[interface_range].to_vec(),
+        );
         preview.triangles.truncate(surface_count);
         preview.colors.truncate(surface_count);
         self.cad_mesh = mesh;

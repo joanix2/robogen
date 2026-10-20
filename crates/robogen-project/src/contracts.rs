@@ -2,7 +2,9 @@
 
 use crate::{ComputeBackend, ExecutionSettings, MassDiagnostic};
 use robogen_cad::Mesh;
-use robogen_domain::{Length, LoadCaseId, Mass, MaterialId, OptimizationId, PartId, SourceSpan};
+use robogen_domain::{
+    Length, LoadCaseId, Mass, MaterialId, ObjectInstanceId, OptimizationId, PartId, SourceSpan,
+};
 use robogen_ir::SemanticModel;
 use std::collections::BTreeMap;
 
@@ -13,6 +15,7 @@ pub struct ProjectSnapshot {
     pub topology: BTreeMap<OptimizationId, TopologyReport>,
     pub mass_diagnostics: BTreeMap<OptimizationId, MassDiagnostic>,
     pub preparation: BTreeMap<PartId, [Mesh; 3]>,
+    pub instance_interfaces: BTreeMap<ObjectInstanceId, Mesh>,
     pub optimization_states: BTreeMap<PartId, OptimizationState>,
 }
 

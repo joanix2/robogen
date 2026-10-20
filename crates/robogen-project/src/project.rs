@@ -2,7 +2,7 @@
 
 use crate::{
     manifest::load_manifest,
-    projection::{build_all_meshes, solve_constraints},
+    projection::{build_all_meshes, build_instance_interfaces, solve_constraints},
     topology::part_operations,
     OptimizationState, Project, ProjectIoError, ProjectManifest, ProjectSnapshot,
 };
@@ -58,6 +58,7 @@ impl Project {
         solve_constraints(&mut model, &mut diagnostics);
         let (meshes, preparation) =
             build_all_meshes(&model, revision, &mut diagnostics, cancelled, progress);
+        let instance_interfaces = build_instance_interfaces(&model, cancelled, &mut diagnostics);
         if diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -78,6 +79,7 @@ impl Project {
                 topology: BTreeMap::new(),
                 mass_diagnostics: BTreeMap::new(),
                 preparation,
+                instance_interfaces,
                 optimization_states,
             },
         })

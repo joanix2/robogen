@@ -206,3 +206,11 @@
   seules interfaces choisies, compatibilité Solid, refus bibliothèque). Gates : fmt,
   Clippy workspace, 173 tests réussis/0 ignoré, quatre tests Python, architecture
   21/36, Ruff passent. Changements non committés, en attente d'autorisation.
+
+- Ticket 17, itération 7 commitée : `1a92a8a` « feat(dsl): add object instances
+  with shared regions » (19 fichiers, 1133 insertions / 81 suppressions), à la
+  demande de l'utilisateur. Aucun push. Itération 8 ouverte : l'utilisateur veut
+  voir l'interface `housing` commune sur les 14 servos en permanence (overlay vert
+  dédié, distinct des couches TopOpt Conserver/Exclure). Plan validé, exploration
+  du chemin de rendu en cours, aucune implémentation encore ; aucune modification
+  des TopologySpec, appuis, charges ou résultats d'optimisation prévue.

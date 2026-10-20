@@ -2,7 +2,7 @@
 
 use crate::{
     dependencies::{dependencies_for, quantity_expr},
-    projection::{build_all_meshes, solve_constraints},
+    projection::{build_all_meshes, build_instance_interfaces, solve_constraints},
     DirtyNode, OptimizationState, Project, ProjectSnapshot, RebuildReport,
 };
 use robogen_cad::{build_part_mesh, ResolvedTopologyKernel};
@@ -64,6 +64,8 @@ impl Project {
         if !model.topology_operations().is_empty() {
             let (meshes, preparation) =
                 build_all_meshes(&model, 0, &mut diagnostics, &|| false, &|_, _| {});
+            let instance_interfaces =
+                build_instance_interfaces(&model, &|| false, &mut diagnostics);
             if !diagnostics.is_empty() {
                 return Err(diagnostics);
             }
@@ -85,6 +87,7 @@ impl Project {
                 model,
                 meshes,
                 preparation,
+                instance_interfaces,
                 optimization_states,
                 topology: BTreeMap::new(),
                 mass_diagnostics: BTreeMap::new(),
@@ -115,6 +118,7 @@ impl Project {
                 }
             }
         }
+        let instance_interfaces = build_instance_interfaces(&model, &|| false, &mut diagnostics);
         if diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -127,6 +131,7 @@ impl Project {
             topology: BTreeMap::new(),
             mass_diagnostics: BTreeMap::new(),
             preparation: BTreeMap::new(),
+            instance_interfaces,
             optimization_states: BTreeMap::new(),
         };
         Ok(RebuildReport {

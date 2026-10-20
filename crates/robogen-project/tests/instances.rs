@@ -61,3 +61,24 @@ fn every_servo_instance_shares_identical_region_geometry() -> Result<(), String>
     assert_eq!(shapes.len(), 2, "housing is two contact rings");
     Ok(())
 }
+
+#[test]
+fn instance_interfaces_project_all_servo_housings_without_touching_topology() -> Result<(), String>
+{
+    let project = Project::from_source(SOURCE).map_err(|errors| format!("{errors:?}"))?;
+    let snapshot = project.snapshot();
+    assert_eq!(
+        snapshot.instance_interfaces.len(),
+        14,
+        "expected 14 servo interface overlays"
+    );
+    for mesh in snapshot.instance_interfaces.values() {
+        assert!(!mesh.triangles.is_empty(), "interface overlay is empty");
+    }
+    assert_eq!(
+        snapshot.model.topology_operations().len(),
+        11,
+        "topology preparations must be unchanged"
+    );
+    Ok(())
+}

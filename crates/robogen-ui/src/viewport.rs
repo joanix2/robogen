@@ -31,6 +31,12 @@ impl RoboGenUi {
                         )
                         .changed();
                 }
+                changed |= ui
+                    .checkbox(
+                        &mut self.show_instance_interfaces,
+                        RichText::new("Interface").color(Color32::from_rgb(0, 210, 210)),
+                    )
+                    .changed();
             });
             if changed {
                 self.rebuild_preview();
@@ -113,6 +119,24 @@ impl RoboGenUi {
                 &self.camera,
                 ViewportSize::new(rect.width(), rect.height()),
                 mesh,
+            );
+            for triangle in frame.triangles {
+                let points = triangle
+                    .points
+                    .map(|point| egui::pos2(rect.left() + point.x, rect.top() + point.y));
+                for edge in [[0, 1], [1, 2], [2, 0]] {
+                    painter
+                        .line_segment([points[edge[0]], points[edge[1]]], Stroke::new(1.0, color));
+                }
+            }
+        }
+
+        if self.show_instance_interfaces {
+            let color = Color32::from_rgb(0, 210, 210);
+            let frame = self.preview_renderer.render_mesh(
+                &self.camera,
+                ViewportSize::new(rect.width(), rect.height()),
+                &self.instance_interface_meshes,
             );
             for triangle in frame.triangles {
                 let points = triangle

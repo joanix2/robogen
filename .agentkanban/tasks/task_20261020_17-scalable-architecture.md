@@ -577,3 +577,14 @@ puis implémentation, tests et vérification native. Aucun TopologySpec, appui,
 charge ni résultat d'optimisation ne sera modifié.
 
 ### user
+
+commit
+
+### agent
+
+Commit local `1a92a8a` effectué pour la tranche itération 7 (Object/Instance,
+ADR-015) : 19 fichiers, 1133 insertions / 81 suppressions. Arbre propre, aucun
+push ni changement de branche. L'itération 8 (overlay vert des interfaces servo)
+reste à implémenter ; les sessions d'exploration du chemin de rendu sont en cours.
+
+### user
