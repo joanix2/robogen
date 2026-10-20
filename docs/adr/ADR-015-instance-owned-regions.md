@@ -22,7 +22,8 @@ Solid and physical quantity parameter types.
 ```text
 component servo_object() -> Object {
     return object(shape: servo(), void: [servo_exclusion()],
-        interfaces: [interface(name: "housing", shape: servo_housing_contacts())]);
+        interfaces: [interface(name: "housing", shape: servo_housing_contacts()),
+            interface(name: "shaft", shape: servo_shaft_contacts())]);
 }
 instance LeftKneeServo = translate(offset: [0 mm, 0 mm, 100 mm],
     shape: rotate(x: 0 deg, y: 90 deg, z: 0 deg, shape: servo_object()));

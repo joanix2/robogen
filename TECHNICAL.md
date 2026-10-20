@@ -54,10 +54,24 @@ boundary tests, architecture 21 crates/36 edges and Ruff pass.
 
 ## Automatic green instance mounts (2026-10-20)
 
+Servo shaft interface (2026-10-20): `servo_object()` now declares `housing` and `shaft`.
+`shaft` is a 2 mm disc of radius `SHAFT_PAD_RADIUS` (6 mm) with a 1 mm screw hole,
+on the output face (z = 29.9 mm), centred on the shaft axis and facing outwards.
+Both are chosen design dimensions, not manufacturer data; the horn is not modelled.
+By the ADR-016 convention the parent of a joint carries the housing and the child the
+output, so limb preparations preserve `distal_housing` (lower servo) and `proximal_shaft`
+(upper servo), feet preserve `ankle_shaft`, torso/pelvis keep their housings. The
+estimated left shin's proximal transfer interface now is that shaft pad (previously a
+free-standing 8 mm cylinder 4 mm off the face); its name and load cases are unchanged,
+so the estimate's load surface changed and remains exploratory. A project test checks,
+for all 14 declared joints, that the pad is centred on the joint axis, starts on the
+output face and extends outwards.
+
 Every declared Object instance owns all of its local interface geometry under its
 single pose. Project projects these interfaces into `instance_interfaces` for
 all instances, independently of TopologySpec selection. The mini-biped therefore
-has 14 automatic interface meshes, each containing its two housing contact rings.
+has 14 automatic interface meshes, each containing its two housing contact rings and the
+shaft pad (see "Servo shaft interface" below).
 The viewport displays these in green by default as `Fixations auto · 14 objets`,
 in both Design and Optimization, including when CameraSupport is selected.
 The control is also available in scenes without any topology declaration.
@@ -271,8 +285,8 @@ Rust fmt, Clippy all-targets with denied warnings and workspace tests passed.
 The mini_biped source now retains its 17 purchased components and adds eleven
 separate topology preparations for camera, torso, pelvis and paired limbs/feet.
 Their domain dimensions are design proposals, not optimized geometry. Contact
-rings use the existing housing/board hole coordinates; horn transmission
-interfaces, swept volumes and physical loading are still unresolved. Camera
+rings use the existing housing/board hole coordinates; the horn itself, swept
+volumes and physical loading are still unresolved. Camera
 mounting on the board is a design proposal, not a validated PCB load path.
 
 TopologySpec schema 2 uses Option<MaterialId>. Explicit `material: unknown`

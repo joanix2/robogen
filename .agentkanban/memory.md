@@ -251,3 +251,7 @@
   Libellés placés par recherche de positions libres (place_label). 202 tests, fmt, Clippy,
   frontières 21/37 passent ; captures kinematic-*-20261020.png. Ni mobilité ni fermeture
   de boucle ; non committé en attente d'autorisation.
+
+- 2026-10-20, ticket17 itération12 : interface `shaft` (pad de sortie, 6 mm de rayon) ajoutée aux servos ;
+  parent = carter, enfant = arbre (ADR-016). Tibia estimé réutilise ce pad ; palonnier non modélisé.
+  204 tests, fmt, Clippy passent.

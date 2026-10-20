@@ -184,3 +184,11 @@ L'itération 10 (graphe de références géométriques) est remplacée par l'it�
 - [x] Aligner TECHNICAL.md, CURRENT.md et README.md sur le modèle mécanique déclaré.
 - [x] Gates : fmt, Clippy -D warnings, 202 tests, 4 tests Python, frontières 21 crates/37 arêtes, git diff --check.
 - [ ] Revue du diff et commit local sur autorisation explicite.
+
+# Itération 12 - Interface d'arbre des servos
+
+- [x] Diagnostiquer : seules les oreilles du carter étaient des interfaces, rien côté arbre de sortie.
+- [x] Ajouter l'interface `shaft` à l'objet servo (pose partagée, 14 instances identiques).
+- [x] Faire préserver l'arbre par les pièces enfants (cuisses, tibias, bras, pieds) et le carter par les parents.
+- [x] Tests : géométrie du pad sur l'axe des 14 pivots déclarés, interfaces préservées par pièce ; mutation vérifiée.
+- [x] Gates (204 tests, fmt, Clippy), contrôle natif, docs (README, ADR-015, TECHNICAL).

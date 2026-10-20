@@ -113,13 +113,16 @@ pas des formes optimisées. `SUPPORT_WIDTH`, `SUPPORT_DEPTH`, `FOOT_WIDTH`,
 `FOOT_LENGTH`, `FOOT_HEIGHT`, `CONTACT_RADIUS` et `CONTACT_THICKNESS` sont éditables.
 Les anneaux de contact utilisent les centres et diamètres des trous déclarés ;
 leur rayon extérieur et épaisseur sont des choix de conception, pas des cotes
-fabricant. Les sorties de servos/palonniers ne sont pas modélisées comme interfaces.
+fabricant. Chaque servo expose deux interfaces : `housing` (oreilles du carter, portée
+par le parent de l'articulation) et `shaft` (disque d'appui du palonnier sur la face de
+sortie, `SHAFT_PAD_RADIUS`, centré sur l'axe de l'arbre et dirigé vers l'extérieur, porté
+par l'enfant). Le palonnier lui-même et son entraxe de vis ne sont pas modélisés.
 
 Chaque servo est une `instance` nommée ([ADR-015](../../docs/adr/ADR-015-instance-owned-regions.md))
 dont la pose est écrite une seule fois : le boîtier visible, son volume d'exclusion
 et ses contacts de fixation partagent cette pose via `instance_shape`,
 `instance_void` et `instance_interface`. Les préparations de supports sélectionnent
-les seules interfaces utiles (`instance_interface(..., "housing")`) sans copier de
+les seules interfaces utiles (`instance_interface(..., "housing")` ou `"shaft"`) sans copier de
 cas de charge entre occurrences. La géométrie compilée est inchangée.
 
 Les exclusions couvrent les enveloppes locales des composants voisins et les

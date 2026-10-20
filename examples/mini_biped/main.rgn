@@ -321,10 +321,13 @@ component li_ion_battery(diameter: Length = lib_battery_PACK_DIAMETER,
 // Anchor at the output shaft face (5.9, 5.9, 29.9), not the housing corner.
 // Rotation orients the whole servo. It does not actuate the shaft.
 // Each named instance applies the anchor, rotation and placement once; its
-// shape, exclusion and housing contacts share that single pose.
+// shape, exclusion and both attachment interfaces share that single pose.
+// "housing" fixes the case (the joint parent); "shaft" is the output-face pad
+// carrying the horn (the joint child).
 component servo_object() -> Object {
     return object(shape: servo(), void: [servo_exclusion()],
-        interfaces: [interface(name: "housing", shape: servo_housing_contacts())]);
+        interfaces: [interface(name: "housing", shape: servo_housing_contacts()),
+            interface(name: "shaft", shape: servo_shaft_contacts())]);
 }
 
 component placed_servo(x: Length, y: Length, z: Length, rx: Angle, ry: Angle, rz: Angle) -> Object {
@@ -445,6 +448,7 @@ parameter SUPPORT_WIDTH = 68 mm;
 parameter SUPPORT_DEPTH = 60 mm;
 parameter CONTACT_RADIUS = 2 mm;
 parameter CONTACT_THICKNESS = 2 mm;
+parameter SHAFT_PAD_RADIUS = 6 mm;
 parameter FOOT_WIDTH = 48 mm;
 parameter FOOT_LENGTH = 80 mm;
 parameter FOOT_HEIGHT = 40 mm;
@@ -459,9 +463,6 @@ material PLA_Estimated {
 parameter ESTIMATED_SHIN_VERTICAL_FORCE = 40 N;
 parameter ESTIMATED_SHIN_LATERAL_FORCE = 10 N;
 parameter ESTIMATED_SHIN_MAX_DISPLACEMENT = 0.5 mm;
-parameter ESTIMATED_PROXIMAL_PAD_RADIUS = 8 mm;
-parameter ESTIMATED_PROXIMAL_PAD_THICKNESS = 5 mm;
-parameter ESTIMATED_PROXIMAL_PAD_OFFSET = 4 mm;
 parameter ESTIMATED_DISTAL_PAD_OFFSET = 8 mm;
 parameter ESTIMATED_DISTAL_PAD_WIDTH = 8 mm;
 parameter ESTIMATED_DISTAL_PAD_DEPTH = 4 mm;
@@ -476,6 +477,14 @@ component servo_housing_contacts() -> Solid {
     return compound(
         translate([5.9 mm, -2.4 mm, 15.9 mm - CONTACT_THICKNESS], contact_ring()),
         translate([5.9 mm, 24.9 mm, 15.9 mm - CONTACT_THICKNESS], contact_ring()));
+}
+
+// Horn pad on the output face (z = 29.9 mm), centred on the shaft axis. Its outer
+// radius and thickness are design choices, not manufacturer dimensions.
+component servo_shaft_contacts() -> Solid {
+    return translate([5.9 mm, 5.9 mm, 29.9 mm],
+        difference(cylinder(radius: SHAFT_PAD_RADIUS, height: CONTACT_THICKNESS),
+            cylinder(radius: 1 mm, height: CONTACT_THICKNESS)));
 }
 
 component servo_exclusion() -> Solid {
@@ -496,7 +505,9 @@ component limb_preparation(x: Length, lower: Length, upper: Length,
         domain: translate([x - SUPPORT_WIDTH / 2, -SUPPORT_DEPTH / 2, lower - 12 mm],
             box([SUPPORT_WIDTH, SUPPORT_DEPTH, upper - lower + 24 mm])),
         preserve: [interface(name: "distal_housing", shape:
-            instance_interface(lower_servo, "housing"))],
+                instance_interface(lower_servo, "housing")),
+            interface(name: "proximal_shaft", shape:
+                instance_interface(upper_servo, "shaft"))],
         void: [instance_void(lower_servo), instance_void(upper_servo)],
         material: unknown, load_cases: [], objective: minimize_mass,
         constraints: [], manufacturing: []);
@@ -525,9 +536,7 @@ component estimated_left_shin(x: Length, lower: Length, upper: Length,
             interface(name: "estimated_distal_rigid_transfer", shape:
                 estimated_shin_distal_pads(x, lower)),
             interface(name: "estimated_proximal_rigid_transfer", shape:
-                translate([x + ESTIMATED_PROXIMAL_PAD_OFFSET, 0 mm, upper],
-                    rotate(0 deg, 90 deg, 0 deg,
-                        cylinder(ESTIMATED_PROXIMAL_PAD_RADIUS, ESTIMATED_PROXIMAL_PAD_THICKNESS))))
+                instance_interface(upper_servo, "shaft"))
         ],
         void: [instance_void(lower_servo), instance_void(upper_servo)],
         material: PLA_Estimated,
@@ -550,8 +559,8 @@ component foot_preparation(x: Length, ankle: Instance) -> Solid {
     return topology(name: "foot",
         domain: translate([x - FOOT_WIDTH / 2, -FOOT_LENGTH / 2, 0 mm],
             box([FOOT_WIDTH, FOOT_LENGTH, FOOT_HEIGHT])),
-        preserve: [interface(name: "ankle_housing", shape:
-            instance_interface(ankle, "housing"))],
+        preserve: [interface(name: "ankle_shaft", shape:
+            instance_interface(ankle, "shaft"))],
         void: [instance_void(ankle)],
         material: unknown, load_cases: [], objective: minimize_mass,
         constraints: [], manufacturing: []);

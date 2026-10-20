@@ -830,3 +830,32 @@ Le schéma XY du bipède (axes hors plan) n'a pas été inspecté nativement. Ch
 committés, en attente d'autorisation ; aucun push ni changement de lane.
 
 ### user
+
+L'utilisateur indique que les supports du carter (oreilles de fixation) sont bons mais pas
+ceux de l'arbre en sortie du servomoteur.
+
+### agent
+
+Cause confirmée : `servo_object()` n'exposait que `housing`. Le README admettait que les
+sorties/palonniers n'étaient pas des interfaces. Les pièces enfants d'articulation (cuisses,
+tibias, bras, pieds) ne préservaient donc rien côté arbre ; le pied préservait même le carter
+de la cheville alors que, par la convention ADR-016, l'enfant porte la sortie. Le transfert
+proximal du tibia estimé était un cylindre libre de 8 mm décalé de 4 mm de la face de sortie.
+
+Correction, géométrie du carter inchangée : nouvelle interface `shaft` (disque de rayon
+`SHAFT_PAD_RADIUS` = 6 mm, épaisseur `CONTACT_THICKNESS`, trou de 1 mm, sur la face de sortie
+z = 29,9 mm, centré sur l'axe, dirigé vers l'extérieur) partagée par les 14 instances.
+`limb_preparation` préserve `distal_housing` + `proximal_shaft` ; `foot_preparation` préserve
+`ankle_shaft` ; le tibia estimé réutilise ce pad (noms et cas de charge inchangés, mais la
+surface de chargement estimée change : toujours exploratoire). Torse et bassin gardent leurs
+carters (parents). Dimensions de conception, pas des cotes fabricant ; palonnier non modélisé.
+
+Preuves : test géométrique sur les 14 pivots déclarés (pad centré sur l'axe, démarre sur la
+face de sortie, épaisseur 2 mm vers l'extérieur ; échoue si un axe est inversé), test des
+interfaces préservées par pièce, géométrie identique sur toutes les instances. 204 tests
+workspace réussis/0 ignoré, fmt, Clippy -D warnings, diff --check. Capture native
+docs/screenshots/servo-shaft-interface-20261020.png. Limites : le palonnier, son entraxe de
+vis et les charges de couple d'arbre ne sont pas modélisés ; les supports restent des
+préparations incomplètes (E347).
+
+### user
