@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod evaluation;
+mod instances;
+pub use instances::{InstanceRegion, InstanceRegionReference, ObjectInstance};
 pub mod topology;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -95,6 +97,10 @@ pub struct SemanticModel {
     pub materials: BTreeMap<String, Material>,
     pub sketches: BTreeMap<String, Sketch>,
     pub parts: BTreeMap<String, Part>,
+    #[serde(default)]
+    pub instances: BTreeMap<String, ObjectInstance>,
+    #[serde(default)]
+    pub instance_references: Vec<InstanceRegionReference>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -109,6 +115,13 @@ pub fn lower(module: &Module) -> LowerOutput {
         parameters: BTreeMap::new(),
         resolving: BTreeSet::new(),
         components: BTreeMap::new(),
+        instance_declarations: BTreeMap::new(),
+        instance_values: BTreeMap::new(),
+        instance_objects: BTreeMap::new(),
+        module_name: module.name.clone(),
+        instance_resolving: BTreeSet::new(),
+        objects: Vec::new(),
+        instance_references: Vec::new(),
         materials: BTreeMap::new(),
         feature_key: String::new(),
         topology_names: BTreeSet::new(),
@@ -127,6 +140,7 @@ pub fn lower(module: &Module) -> LowerOutput {
             Declaration::Sketch(value) => (&value.name, value.span),
             Declaration::Part(value) => (&value.name, value.span),
             Declaration::Component(value) => (&value.name, value.span),
+            Declaration::Instance(value) => (&value.name, value.span),
         };
         if !names.insert(name) {
             context.error("E230", format!("duplicate declaration `{name}`"), span);
@@ -135,6 +149,11 @@ pub fn lower(module: &Module) -> LowerOutput {
             context
                 .parameters
                 .insert(parameter.name.clone(), &parameter.value);
+        }
+        if let Declaration::Instance(instance) = declaration {
+            context
+                .instance_declarations
+                .insert(instance.name.clone(), instance);
         }
         if let Declaration::Component(component) = declaration {
             context.validate_component(component);
@@ -296,6 +315,13 @@ pub fn lower(module: &Module) -> LowerOutput {
 
     context.materials = model.materials.clone();
     for declaration in &module.declarations {
+        if let Declaration::Instance(instance) = declaration {
+            context.resolve_instance(&instance.name, instance.span);
+        }
+    }
+    model.instances = context.materialize_instances(&module.name);
+
+    for declaration in &module.declarations {
         if let Declaration::Part(part) = declaration {
             let material = match part.material.as_ref() {
                 Some(name) => model.materials.get(name).map(|value| value.id).or_else(|| {
@@ -388,6 +414,7 @@ pub fn lower(module: &Module) -> LowerOutput {
             }
         }
     }
+    model.instance_references = std::mem::take(&mut context.instance_references);
     LowerOutput {
         model,
         diagnostics: context.diagnostics,
@@ -399,6 +426,13 @@ struct LowerContext<'a> {
     parameters: BTreeMap<String, &'a Expr>,
     resolving: BTreeSet<String>,
     components: BTreeMap<String, &'a robogen_dsl::ComponentDecl>,
+    instance_declarations: BTreeMap<String, &'a robogen_dsl::InstanceDecl>,
+    instance_values: BTreeMap<String, usize>,
+    instance_objects: BTreeMap<robogen_domain::ObjectInstanceId, usize>,
+    module_name: String,
+    instance_resolving: BTreeSet<String>,
+    objects: Vec<evaluation::ObjectNode>,
+    instance_references: Vec<InstanceRegionReference>,
     materials: BTreeMap<String, Material>,
     feature_key: String,
     topology_names: BTreeSet<String>,

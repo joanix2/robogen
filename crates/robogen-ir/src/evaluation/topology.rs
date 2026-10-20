@@ -8,7 +8,7 @@ use robogen_dsl::{Expr, ExprKind};
 use std::collections::{BTreeMap, BTreeSet};
 
 impl LowerContext<'_> {
-    fn topology_args<'e>(
+    pub(super) fn topology_args<'e>(
         &mut self,
         args: &'e [Expr],
         names: &[&str],
@@ -26,7 +26,12 @@ impl LowerContext<'_> {
         Some(result)
     }
 
-    fn topology_list<'e>(&mut self, expr: &'e Expr, min: usize, max: usize) -> Option<&'e [Expr]> {
+    pub(super) fn topology_list<'e>(
+        &mut self,
+        expr: &'e Expr,
+        min: usize,
+        max: usize,
+    ) -> Option<&'e [Expr]> {
         if let ExprKind::Vector(values) = &expr.kind {
             if (min..=max).contains(&values.len()) {
                 return Some(values);
@@ -40,7 +45,7 @@ impl LowerContext<'_> {
         None
     }
 
-    fn topology_name(&mut self, expr: &Expr) -> Option<String> {
+    pub(super) fn topology_name(&mut self, expr: &Expr) -> Option<String> {
         if let ExprKind::String(name) = &expr.kind {
             if !name.is_empty()
                 && name.len() <= 64
@@ -112,7 +117,7 @@ impl LowerContext<'_> {
         Some(values)
     }
 
-    fn topology_solid(&mut self, expr: &Expr, scope: &Scope) -> Option<usize> {
+    pub(super) fn topology_solid(&mut self, expr: &Expr, scope: &Scope) -> Option<usize> {
         let value = self.evaluate(expr, scope)?;
         self.expect_solid(value, expr.span)
     }

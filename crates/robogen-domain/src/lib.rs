@@ -43,6 +43,7 @@ typed_id!(ParameterId);
 typed_id!(MaterialId);
 typed_id!(SketchId);
 typed_id!(PartId);
+typed_id!(ObjectInstanceId);
 typed_id!(FeatureId);
 typed_id!(EntityId);
 typed_id!(OptimizationId);

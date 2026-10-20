@@ -35,6 +35,13 @@ pub fn component_library(
     let mut has_entrypoint = false;
     for declaration in &module.declarations {
         let name = match declaration {
+            Declaration::Instance(value) => {
+                return Err(vec![Diagnostic::error(
+                    "E330",
+                    "component libraries cannot export named instances",
+                    value.span,
+                )])
+            }
             Declaration::Parameter(value) => &value.name,
             Declaration::Material(value) => &value.name,
             Declaration::Component(value) => {
@@ -132,6 +139,7 @@ pub fn component_library(
                 ));
                 text
             }
+            Declaration::Instance(_) => continue,
             Declaration::Part(_) => continue,
             Declaration::Sketch(_) => continue,
         };

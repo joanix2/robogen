@@ -1,3 +1,4 @@
+mod objects;
 mod topology;
 use super::{parse_quantity, LowerContext, SolidGeometry, SolidOperation};
 use robogen_domain::{Angle, Length, Quantity, QuantityKind, SourceSpan};
@@ -13,7 +14,16 @@ pub(super) enum Value {
     Quantity(Quantity),
     Vector([Length; 3]),
     Solid(usize),
+    Object(usize),
+    Instance(robogen_domain::ObjectInstanceId),
     Unbound,
+}
+
+#[derive(Clone)]
+pub(super) struct ObjectNode {
+    shape: usize,
+    voids: Vec<usize>,
+    interfaces: BTreeMap<String, usize>,
 }
 
 pub(super) struct Node {
@@ -51,6 +61,10 @@ impl LowerContext<'_> {
                 | "compound"
                 | "difference"
                 | "extrude"
+                | "object"
+                | "instance_shape"
+                | "instance_void"
+                | "instance_interface"
         ) {
             self.error(
                 "E230",
@@ -67,7 +81,7 @@ impl LowerContext<'_> {
                     parameter.span,
                 );
             }
-            if type_kind(&parameter.type_name).is_none() {
+            if parameter.type_name != "Instance" && type_kind(&parameter.type_name).is_none() {
                 self.error(
                     "E231",
                     format!("unsupported parameter type `{}`", parameter.type_name),
@@ -157,6 +171,9 @@ impl LowerContext<'_> {
                     None
                 }
                 Some(value) => Some(value),
+                None if self.instance_declarations.contains_key(name) => {
+                    self.resolve_instance(name, span).map(Value::Instance)
+                }
                 None => self.resolve_parameter(name, span).map(Value::Quantity),
             },
             ExprKind::Unary { operator, value } => {
@@ -385,11 +402,18 @@ impl LowerContext<'_> {
                 );
                 return None;
             };
-            let quantity = self.expect_quantity(value, span)?;
-            let expected = type_kind(&parameter.type_name)?;
-            if quantity.kind() != expected {
-                self.type_error(expected, quantity.kind(), span);
-                return None;
+            if parameter.type_name == "Instance" {
+                if !matches!(value, Value::Instance(_)) {
+                    self.error("E234", "expected Instance", span);
+                    return None;
+                }
+            } else {
+                let quantity = self.expect_quantity(value, span)?;
+                let expected = type_kind(&parameter.type_name)?;
+                if quantity.kind() != expected {
+                    self.type_error(expected, quantity.kind(), span);
+                    return None;
+                }
             }
             scope.insert(parameter.name.clone(), value);
         }
@@ -398,8 +422,18 @@ impl LowerContext<'_> {
             scope.insert(binding.name.clone(), value);
         }
         let value = self.evaluate(&component.result, &scope)?;
-        self.expect_solid(value, component.result.span)
-            .map(Value::Solid)
+        match (component.return_type, value) {
+            (robogen_dsl::ComponentReturnType::Solid, Value::Solid(_))
+            | (robogen_dsl::ComponentReturnType::Object, Value::Object(_)) => Some(value),
+            _ => {
+                self.error(
+                    "E234",
+                    format!("expected {:?} component result", component.return_type),
+                    component.result.span,
+                );
+                None
+            }
+        }
     }
 
     fn builtin(
@@ -409,6 +443,12 @@ impl LowerContext<'_> {
         scope: &Scope,
         span: SourceSpan,
     ) -> Option<Value> {
+        if matches!(
+            name,
+            "object" | "instance_shape" | "instance_void" | "instance_interface"
+        ) {
+            return self.object_builtin(name, args, scope, span);
+        }
         if name == "topology" {
             let spec = self.topology(args, scope, span)?;
             return self
@@ -514,11 +554,21 @@ impl LowerContext<'_> {
                     };
                     *angle = value;
                 }
+                if let Value::Object(index) = values[3] {
+                    return self
+                        .transform_object(index, None, Some(angles), span)
+                        .map(Value::Object);
+                }
                 Operation::Rotate(angles, self.expect_solid(values[3], span)?)
             }
             "translate" => {
                 let values = self.required_arguments(args, &["offset", "shape"], scope, span)?;
                 let offset = self.expect_vector(values[0], span)?;
+                if let Value::Object(index) = values[1] {
+                    return self
+                        .transform_object(index, Some(offset), None, span)
+                        .map(Value::Object);
+                }
                 let shape = self.expect_solid(values[1], span)?;
                 Operation::Translate(offset, shape)
             }

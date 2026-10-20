@@ -20,12 +20,29 @@ pub enum Declaration {
     Sketch(SketchDecl),
     Part(PartDecl),
     Component(ComponentDecl),
+    Instance(InstanceDecl),
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ComponentReturnType {
+    #[default]
+    Solid,
+    Object,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InstanceDecl {
+    pub name: String,
+    pub value: Expr,
+    pub span: SourceSpan,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComponentDecl {
     pub name: String,
     pub parameters: Vec<ComponentParameter>,
+    #[serde(default)]
+    pub return_type: ComponentReturnType,
     pub bindings: Vec<Field>,
     pub result: Expr,
     pub span: SourceSpan,
@@ -318,6 +335,8 @@ impl Parser {
                 self.sketch().map(Declaration::Sketch)
             } else if self.take_keyword("part") {
                 self.part().map(Declaration::Part)
+            } else if self.take_keyword("instance") {
+                self.instance().map(Declaration::Instance)
             } else if self.take_keyword("component") {
                 self.component().map(Declaration::Component)
             } else if self.take_keyword("import") {
@@ -359,6 +378,19 @@ impl Parser {
         })
     }
 
+    fn instance(&mut self) -> Option<InstanceDecl> {
+        let start = self.previous_span().start;
+        let name = self.take_ident("instance name")?;
+        self.expect_symbol('=');
+        let value = self.expr()?;
+        let end = self.expect_symbol(';').end;
+        Some(InstanceDecl {
+            name,
+            value,
+            span: SourceSpan::new(start, end),
+        })
+    }
+
     fn component(&mut self) -> Option<ComponentDecl> {
         let start = self.previous_span().start;
         let name = self.take_ident("component name")?;
@@ -387,9 +419,14 @@ impl Parser {
         self.expect_symbol(')');
         self.expect_symbol('-');
         self.expect_symbol('>');
-        if !self.take_keyword("Solid") {
-            self.error_here("E110", "component must return Solid");
-        }
+        let return_type = if self.take_keyword("Solid") {
+            ComponentReturnType::Solid
+        } else if self.take_keyword("Object") {
+            ComponentReturnType::Object
+        } else {
+            self.error_here("E110", "component must return Solid or Object");
+            ComponentReturnType::Solid
+        };
         self.expect_symbol('{');
         let mut bindings = Vec::new();
         let mut result = None;
@@ -429,6 +466,7 @@ impl Parser {
         Some(ComponentDecl {
             name,
             parameters,
+            return_type,
             bindings,
             result,
             span: SourceSpan::new(start, end),

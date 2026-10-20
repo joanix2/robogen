@@ -26,6 +26,32 @@ The dated Julia/CUDA sections below are historical measurements only; they do
 not describe current capabilities. Ignored local downloads are left untouched
 and no application code launches them.
 
+## Object instances and owned regions (2026-10-20, ticket 17 iteration 7)
+
+[ADR-015](docs/adr/ADR-015-instance-owned-regions.md) adds reusable `Object`
+values and named `instance` declarations so a repeated purchased component owns
+its geometry, exclusion volumes and named interfaces under one pose. The DSL
+gains `object(shape:, void:, interfaces:)`, `instance NAME = <object>`, and the
+projections `instance_shape`, `instance_void`, `instance_interface`. Component
+parameters may be typed `Instance`, letting reusable generators select regions
+from specific occurrences without copying a load case from the template.
+
+The mini-biped servos now share one pose per named instance; the visible part,
+its exclusion and its housing contacts derive from that single pose. This removes
+the previously duplicated `pitch_servo`/`pitch_contacts`/`pitch_exclusion` (and
+roll) pose math while keeping identical geometry: the example still compiles to
+25968 vertices / 51660 triangles, 28 parts, 17 meshes and 11 preparations.
+
+`SemanticModel` gains serde-default `instances` and `instance_references`.
+`ObjectInstanceId` is typed and name-derived, so IDs are stable across rebuilds.
+Each instance reference records the selecting feature, the region (shape/void/
+named interface) and its source span. Existing Solid components and sources
+remain valid; no backend, schema or dependency is added.
+
+Validation: 10 focused instance tests, the biped integration test (identical
+geometry), workspace fmt/Clippy/tests (173 passed, zero ignored), four Python
+boundary tests, architecture 21 crates/36 edges and Ruff pass.
+
 ## Native CUDA Mass Solver (2026-10-08, Iteration 16)
 
 Optimisation now has an explicit CPU / GPU CUDA choice for minimum mass, CPU by

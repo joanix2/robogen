@@ -115,6 +115,13 @@ Les anneaux de contact utilisent les centres et diamètres des trous déclarés 
 leur rayon extérieur et épaisseur sont des choix de conception, pas des cotes
 fabricant. Les sorties de servos/palonniers ne sont pas modélisées comme interfaces.
 
+Chaque servo est une `instance` nommée ([ADR-015](../../docs/adr/ADR-015-instance-owned-regions.md))
+dont la pose est écrite une seule fois : le boîtier visible, son volume d'exclusion
+et ses contacts de fixation partagent cette pose via `instance_shape`,
+`instance_void` et `instance_interface`. Les préparations de supports sélectionnent
+les seules interfaces utiles (`instance_interface(..., "housing")`) sans copier de
+cas de charge entre occurrences. La géométrie compilée est inchangée.
+
 Les exclusions couvrent les enveloppes locales des composants voisins et les
 perçages connus. Les volumes de mouvement, outils et câbles flexibles, marges de
 montage et séparation entre futurs supports restent à compléter. Les domaines

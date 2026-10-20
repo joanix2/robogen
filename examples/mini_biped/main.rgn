@@ -320,86 +320,103 @@ component li_ion_battery(diameter: Length = lib_battery_PACK_DIAMETER,
 
 // Anchor at the output shaft face (5.9, 5.9, 29.9), not the housing corner.
 // Rotation orients the whole servo. It does not actuate the shaft.
-component pitch_servo(x: Length, z: Length, turn: Angle) -> Solid {
-    return translate(offset: [x, 0 mm, z],
-        shape: rotate(x: 0 deg, y: turn, z: 0 deg,
-            shape: translate(offset: [-5.9 mm, -5.9 mm, -29.9 mm], shape: servo())));
+// Each named instance applies the anchor, rotation and placement once; its
+// shape, exclusion and housing contacts share that single pose.
+component servo_object() -> Object {
+    return object(shape: servo(), void: [servo_exclusion()],
+        interfaces: [interface(name: "housing", shape: servo_housing_contacts())]);
 }
-component roll_servo(x: Length, z: Length) -> Solid {
-    return translate(offset: [x, -20 mm, z],
-        shape: rotate(x: 90 deg, y: 0 deg, z: 0 deg,
-            shape: translate(offset: [-5.9 mm, -5.9 mm, -29.9 mm], shape: servo())));
+
+component placed_servo(x: Length, y: Length, z: Length, rx: Angle, ry: Angle, rz: Angle) -> Object {
+    return translate(offset: [x, y, z],
+        shape: rotate(x: rx, y: ry, z: rz,
+            shape: translate(offset: [-5.9 mm, -5.9 mm, -29.9 mm], shape: servo_object())));
 }
 
 // Both sides share dimensions; pitched output axes point outwards (+/- X).
+instance LeftHipRollServo = placed_servo(x: LEG_SPACING / 2, y: -20 mm, z: HIP_ROLL_Z, rx: 90 deg, ry: 0 deg, rz: 0 deg);
+instance LeftHipPitchServo = placed_servo(x: LEG_SPACING / 2, y: 0 mm, z: HIP_PITCH_Z, rx: 0 deg, ry: 90 deg, rz: 0 deg);
+instance LeftKneePitchServo = placed_servo(x: LEG_SPACING / 2, y: 0 mm, z: KNEE_Z, rx: 0 deg, ry: 90 deg, rz: 0 deg);
+instance LeftAnklePitchServo = placed_servo(x: LEG_SPACING / 2, y: 0 mm, z: ANKLE_PITCH_Z, rx: 0 deg, ry: 90 deg, rz: 0 deg);
+instance LeftAnkleRollServo = placed_servo(x: LEG_SPACING / 2, y: -20 mm, z: ANKLE_ROLL_Z, rx: 90 deg, ry: 0 deg, rz: 0 deg);
+instance LeftShoulderPitchServo = placed_servo(x: SHOULDER_SPACING / 2, y: 0 mm, z: SHOULDER_Z, rx: 0 deg, ry: 90 deg, rz: 0 deg);
+instance LeftElbowPitchServo = placed_servo(x: SHOULDER_SPACING / 2, y: 0 mm, z: ELBOW_Z, rx: 0 deg, ry: 90 deg, rz: 0 deg);
+instance RightHipRollServo = placed_servo(x: -LEG_SPACING / 2, y: -20 mm, z: HIP_ROLL_Z, rx: 90 deg, ry: 0 deg, rz: 0 deg);
+instance RightHipPitchServo = placed_servo(x: -LEG_SPACING / 2, y: 0 mm, z: HIP_PITCH_Z, rx: 0 deg, ry: -90 deg, rz: 0 deg);
+instance RightKneePitchServo = placed_servo(x: -LEG_SPACING / 2, y: 0 mm, z: KNEE_Z, rx: 0 deg, ry: -90 deg, rz: 0 deg);
+instance RightAnklePitchServo = placed_servo(x: -LEG_SPACING / 2, y: 0 mm, z: ANKLE_PITCH_Z, rx: 0 deg, ry: -90 deg, rz: 0 deg);
+instance RightAnkleRollServo = placed_servo(x: -LEG_SPACING / 2, y: -20 mm, z: ANKLE_ROLL_Z, rx: 90 deg, ry: 0 deg, rz: 0 deg);
+instance RightShoulderPitchServo = placed_servo(x: -SHOULDER_SPACING / 2, y: 0 mm, z: SHOULDER_Z, rx: 0 deg, ry: -90 deg, rz: 0 deg);
+instance RightElbowPitchServo = placed_servo(x: -SHOULDER_SPACING / 2, y: 0 mm, z: ELBOW_Z, rx: 0 deg, ry: -90 deg, rz: 0 deg);
+
 part LeftHipRoll {
     material: lib_servo_ServoPlastic;
-    body = roll_servo(x: LEG_SPACING / 2, z: HIP_ROLL_Z);
+    body = instance_shape(LeftHipRollServo);
 }
 
 part LeftHipPitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: LEG_SPACING / 2, z: HIP_PITCH_Z, turn: 90 deg);
+    body = instance_shape(LeftHipPitchServo);
 }
 
 part LeftKneePitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: LEG_SPACING / 2, z: KNEE_Z, turn: 90 deg);
+    body = instance_shape(LeftKneePitchServo);
 }
 
 part LeftAnklePitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: LEG_SPACING / 2, z: ANKLE_PITCH_Z, turn: 90 deg);
+    body = instance_shape(LeftAnklePitchServo);
 }
 
 part LeftAnkleRoll {
     material: lib_servo_ServoPlastic;
-    body = roll_servo(x: LEG_SPACING / 2, z: ANKLE_ROLL_Z);
+    body = instance_shape(LeftAnkleRollServo);
 }
 
 part LeftShoulderPitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: SHOULDER_SPACING / 2, z: SHOULDER_Z, turn: 90 deg);
+    body = instance_shape(LeftShoulderPitchServo);
 }
 
 part LeftElbowPitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: SHOULDER_SPACING / 2, z: ELBOW_Z, turn: 90 deg);
+    body = instance_shape(LeftElbowPitchServo);
 }
 
 part RightHipRoll {
     material: lib_servo_ServoPlastic;
-    body = roll_servo(x: -LEG_SPACING / 2, z: HIP_ROLL_Z);
+    body = instance_shape(RightHipRollServo);
 }
 
 part RightHipPitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: -LEG_SPACING / 2, z: HIP_PITCH_Z, turn: -90 deg);
+    body = instance_shape(RightHipPitchServo);
 }
 
 part RightKneePitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: -LEG_SPACING / 2, z: KNEE_Z, turn: -90 deg);
+    body = instance_shape(RightKneePitchServo);
 }
 
 part RightAnklePitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: -LEG_SPACING / 2, z: ANKLE_PITCH_Z, turn: -90 deg);
+    body = instance_shape(RightAnklePitchServo);
 }
 
 part RightAnkleRoll {
     material: lib_servo_ServoPlastic;
-    body = roll_servo(x: -LEG_SPACING / 2, z: ANKLE_ROLL_Z);
+    body = instance_shape(RightAnkleRollServo);
 }
 
 part RightShoulderPitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: -SHOULDER_SPACING / 2, z: SHOULDER_Z, turn: -90 deg);
+    body = instance_shape(RightShoulderPitchServo);
 }
 
 part RightElbowPitch {
     material: lib_servo_ServoPlastic;
-    body = pitch_servo(x: -SHOULDER_SPACING / 2, z: ELBOW_Z, turn: -90 deg);
+    body = instance_shape(RightElbowPitchServo);
 }
 
 // Vertical torso board: 104 mm across X, 90 mm high, cooling toward front.
@@ -473,33 +490,14 @@ component servo_exclusion() -> Solid {
         translate([5.9 mm, 24.9 mm, 10 mm], cylinder(1 mm, 15 mm)));
 }
 
-component pitch_contacts(x: Length, z: Length, turn: Angle) -> Solid {
-    return translate([x, 0 mm, z], rotate(0 deg, turn, 0 deg,
-        translate([-5.9 mm, -5.9 mm, -29.9 mm], servo_housing_contacts())));
-}
-
-component pitch_exclusion(x: Length, z: Length, turn: Angle) -> Solid {
-    return translate([x, 0 mm, z], rotate(0 deg, turn, 0 deg,
-        translate([-5.9 mm, -5.9 mm, -29.9 mm], servo_exclusion())));
-}
-
-component roll_contacts(x: Length, z: Length) -> Solid {
-    return translate([x, -20 mm, z], rotate(90 deg, 0 deg, 0 deg,
-        translate([-5.9 mm, -5.9 mm, -29.9 mm], servo_housing_contacts())));
-}
-
-component roll_exclusion(x: Length, z: Length) -> Solid {
-    return translate([x, -20 mm, z], rotate(90 deg, 0 deg, 0 deg,
-        translate([-5.9 mm, -5.9 mm, -29.9 mm], servo_exclusion())));
-}
-
-component limb_preparation(x: Length, lower: Length, upper: Length, turn: Angle) -> Solid {
+component limb_preparation(x: Length, lower: Length, upper: Length,
+    lower_servo: Instance, upper_servo: Instance) -> Solid {
     return topology(name: "limb",
         domain: translate([x - SUPPORT_WIDTH / 2, -SUPPORT_DEPTH / 2, lower - 12 mm],
             box([SUPPORT_WIDTH, SUPPORT_DEPTH, upper - lower + 24 mm])),
         preserve: [interface(name: "distal_housing", shape:
-            pitch_contacts(x, lower, turn))],
-        void: [pitch_exclusion(x, lower, turn), pitch_exclusion(x, upper, turn)],
+            instance_interface(lower_servo, "housing"))],
+        void: [instance_void(lower_servo), instance_void(upper_servo)],
         material: unknown, load_cases: [], objective: minimize_mass,
         constraints: [], manufacturing: []);
 }
@@ -518,7 +516,8 @@ component estimated_shin_distal_pads(x: Length, z: Length) -> Solid {
         translate([-5.9 mm, -5.9 mm, -29.9 mm], pads)));
 }
 
-component estimated_left_shin(x: Length, lower: Length, upper: Length) -> Solid {
+component estimated_left_shin(x: Length, lower: Length, upper: Length,
+    lower_servo: Instance, upper_servo: Instance) -> Solid {
     return topology(name: "left_shin_PLA_estimated",
         domain: translate([x - SUPPORT_WIDTH / 2, -SUPPORT_DEPTH / 2, lower - 12 mm],
             box([SUPPORT_WIDTH, SUPPORT_DEPTH, upper - lower + 24 mm])),
@@ -530,7 +529,7 @@ component estimated_left_shin(x: Length, lower: Length, upper: Length) -> Solid 
                     rotate(0 deg, 90 deg, 0 deg,
                         cylinder(ESTIMATED_PROXIMAL_PAD_RADIUS, ESTIMATED_PROXIMAL_PAD_THICKNESS))))
         ],
-        void: [pitch_exclusion(x, lower, 90 deg), pitch_exclusion(x, upper, 90 deg)],
+        void: [instance_void(lower_servo), instance_void(upper_servo)],
         material: PLA_Estimated,
         load_cases: [
             load_case(name: "estimated_single_leg_lateral",
@@ -547,13 +546,13 @@ component estimated_left_shin(x: Length, lower: Length, upper: Length) -> Solid 
         manufacturing: []);
 }
 
-component foot_preparation(x: Length) -> Solid {
+component foot_preparation(x: Length, ankle: Instance) -> Solid {
     return topology(name: "foot",
         domain: translate([x - FOOT_WIDTH / 2, -FOOT_LENGTH / 2, 0 mm],
             box([FOOT_WIDTH, FOOT_LENGTH, FOOT_HEIGHT])),
         preserve: [interface(name: "ankle_housing", shape:
-            roll_contacts(x, ANKLE_ROLL_Z))],
-        void: [roll_exclusion(x, ANKLE_ROLL_Z)],
+            instance_interface(ankle, "housing"))],
+        void: [instance_void(ankle)],
         material: unknown, load_cases: [], objective: minimize_mass,
         constraints: [], manufacturing: []);
 }
@@ -621,11 +620,11 @@ part TorsoSupport {
         domain: translate([-SHOULDER_SPACING / 2 - 10 mm, -30 mm, TORSO_BASE_Z - 8 mm],
             box([SHOULDER_SPACING + 20 mm, 60 mm, 106 mm])),
         preserve: [interface(name: "board_mount", shape: board_contacts()),
-            interface(name: "left_shoulder_housing", shape: pitch_contacts(SHOULDER_SPACING / 2, SHOULDER_Z, 90 deg)),
-            interface(name: "right_shoulder_housing", shape: pitch_contacts(-SHOULDER_SPACING / 2, SHOULDER_Z, -90 deg))],
+            interface(name: "left_shoulder_housing", shape: instance_interface(LeftShoulderPitchServo, "housing")),
+            interface(name: "right_shoulder_housing", shape: instance_interface(RightShoulderPitchServo, "housing"))],
         void: [board_exclusion(),
-            pitch_exclusion(SHOULDER_SPACING / 2, SHOULDER_Z, 90 deg),
-            pitch_exclusion(-SHOULDER_SPACING / 2, SHOULDER_Z, -90 deg)],
+            instance_void(LeftShoulderPitchServo),
+            instance_void(RightShoulderPitchServo)],
         material: unknown, load_cases: [], objective: minimize_mass,
         constraints: [], manufacturing: []);
 }
@@ -635,10 +634,10 @@ part PelvisSupport {
     body = topology(name: "pelvis_support",
         domain: translate([-LEG_SPACING / 2 - 14 mm, -30 mm, HIP_ROLL_Z - 12 mm],
             box([LEG_SPACING + 28 mm, BATTERY_REAR_OFFSET + 44 mm, TORSO_BASE_Z - HIP_ROLL_Z + 24 mm])),
-        preserve: [interface(name: "left_hip_housing", shape: roll_contacts(LEG_SPACING / 2, HIP_ROLL_Z)),
-            interface(name: "right_hip_housing", shape: roll_contacts(-LEG_SPACING / 2, HIP_ROLL_Z))],
-        void: [roll_exclusion(LEG_SPACING / 2, HIP_ROLL_Z),
-            roll_exclusion(-LEG_SPACING / 2, HIP_ROLL_Z),
+        preserve: [interface(name: "left_hip_housing", shape: instance_interface(LeftHipRollServo, "housing")),
+            interface(name: "right_hip_housing", shape: instance_interface(RightHipRollServo, "housing"))],
+        void: [instance_void(LeftHipRollServo),
+            instance_void(RightHipRollServo),
             board_exclusion(), translate([-34 mm, BATTERY_REAR_OFFSET, BATTERY_Z],
                 rotate(0 deg, 90 deg, 0 deg, li_ion_battery()))],
         material: unknown, load_cases: [], objective: minimize_mass,
@@ -647,33 +646,33 @@ part PelvisSupport {
 
 part LeftThighSupport {
     material: lib_servo_ServoPlastic;
-    body = limb_preparation(LEG_SPACING / 2, KNEE_Z, HIP_PITCH_Z, 90 deg);
+    body = limb_preparation(LEG_SPACING / 2, KNEE_Z, HIP_PITCH_Z, LeftKneePitchServo, LeftHipPitchServo);
 }
 part RightThighSupport {
     material: lib_servo_ServoPlastic;
-    body = limb_preparation(-LEG_SPACING / 2, KNEE_Z, HIP_PITCH_Z, -90 deg);
+    body = limb_preparation(-LEG_SPACING / 2, KNEE_Z, HIP_PITCH_Z, RightKneePitchServo, RightHipPitchServo);
 }
 part LeftShinSupport {
     material: PLA_Estimated;
-    body = estimated_left_shin(LEG_SPACING / 2, ANKLE_PITCH_Z, KNEE_Z);
+    body = estimated_left_shin(LEG_SPACING / 2, ANKLE_PITCH_Z, KNEE_Z, LeftAnklePitchServo, LeftKneePitchServo);
 }
 part RightShinSupport {
     material: lib_servo_ServoPlastic;
-    body = limb_preparation(-LEG_SPACING / 2, ANKLE_PITCH_Z, KNEE_Z, -90 deg);
+    body = limb_preparation(-LEG_SPACING / 2, ANKLE_PITCH_Z, KNEE_Z, RightAnklePitchServo, RightKneePitchServo);
 }
 part LeftFootSupport {
     material: lib_servo_ServoPlastic;
-    body = foot_preparation(LEG_SPACING / 2);
+    body = foot_preparation(LEG_SPACING / 2, LeftAnkleRollServo);
 }
 part RightFootSupport {
     material: lib_servo_ServoPlastic;
-    body = foot_preparation(-LEG_SPACING / 2);
+    body = foot_preparation(-LEG_SPACING / 2, RightAnkleRollServo);
 }
 part LeftArmSupport {
     material: lib_servo_ServoPlastic;
-    body = limb_preparation(SHOULDER_SPACING / 2, ELBOW_Z, SHOULDER_Z, 90 deg);
+    body = limb_preparation(SHOULDER_SPACING / 2, ELBOW_Z, SHOULDER_Z, LeftElbowPitchServo, LeftShoulderPitchServo);
 }
 part RightArmSupport {
     material: lib_servo_ServoPlastic;
-    body = limb_preparation(-SHOULDER_SPACING / 2, ELBOW_Z, SHOULDER_Z, -90 deg);
+    body = limb_preparation(-SHOULDER_SPACING / 2, ELBOW_Z, SHOULDER_Z, RightElbowPitchServo, RightShoulderPitchServo);
 }

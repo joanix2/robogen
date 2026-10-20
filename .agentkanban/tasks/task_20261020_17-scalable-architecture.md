@@ -423,3 +423,157 @@ Python/architecture/linters passés. Préparation du commit local, sans push, sa
 changement de branche ou de lane ; logs, caches et toolchains restent exclus.
 
 ### user
+
+### user
+
+Les contraintes de plein/vide devraient être associées à un objet : lorsqu'on
+répète n fois un servomoteur, les contraintes restent les mêmes quelle que soit
+la pièce à modéliser.
+
+### agent
+
+Analyse en lecture seule, sans modification du DSL ou des sources. Le checkpoint
+précédent est effectif : 45eeccc, arbre propre avant cette entrée de discussion.
+Le code actuel porte preserve/void dans chaque TopologySpec, pas comme contrat
+d'interface d'une instance de composant. Le mini-bipède réapplique manuellement
+les poses dans pitch_servo/roll_servo et dans pitch_contacts/pitch_exclusion/
+roll_contacts/roll_exclusion (main.rgn:322 et 476-495). limb_preparation sélectionne
+ensuite contacts/exclusions par paramètres (main.rgn:497-505). Ce ne sont donc pas
+des zones globales uniques immobiles, mais leur association au composant et la
+synchronisation des poses ne sont pas explicites dans le modèle.
+
+Proposition à discuter : composant réutilisable avec géométrie occupée, volumes
+de dégagement et interfaces nommées en repère local ; chaque instance possède
+une identité et une pose appliquée simultanément à toutes ces données. La pièce
+TopOpt référence les instances/interfaces utiles et définit son domaine, ses
+régions de matière à préserver et ses cas de charge. Le boîtier d'un servo est
+un volume à exclure de la pièce imprimée, pas du plein à ajouter à celle-ci.
+Les interfaces du composant définissent où un raccord est possible ; la pièce
+choisit lesquelles employer et la matière imprimée à conserver autour.
+
+Les répétitions conservent les propriétés intrinsèques, avec poses/identités
+distinctes ; charges, appuis, choix des interfaces et contraintes de la pièce
+ne doivent pas être copiés automatiquement à toutes les occurrences. Cette
+évolution exige un contrat de référence d'instance et une ADR avant modification
+DSL/IR ; aucune syntaxe proposée n'est présentée comme déjà supportée.
+
+### user
+
+### user
+
+Corrige le.
+
+### agent
+
+Autorisation d'implémenter l'association objet/instance discutée. ADR-015 rédigée
+avant modification des contrats : Object local réutilisable, instances nommées
+avec ID typé/pose commune, projections shape/void/interface et provenance dans
+SemanticModel. La pièce choisit ses interfaces, charges et appuis ; aucune
+copie automatique des cas de charge entre occurrences. Les sources Solid
+existantes restent valides.
+
+Plan : spécialiste DSL/IR/domain sur ces seuls périmètres et leurs tests ; parent
+sur raccords Project, exemple mini-bipède, intégration, docs/Kanban/Git. Aucun
+manifeste ou schéma physique tiers. Vérifications : types/diagnostics, répétitions
+avec poses différentes, IDs/provenance, seules interfaces choisies, rebuild
+paramétrique/historique, CAD et worker/UI sans résultat scientifique fictif.
+
+### agent
+
+Implémentation livrée, non committée. DSL : déclaration `instance`, retour de
+composant `Object` (`ComponentReturnType`), `object(...)` et projections
+`instance_shape`/`instance_void`/`instance_interface`. IR : `instances.rs`
+(ObjectInstance, InstanceRegion, InstanceRegionReference) et module
+`evaluation/objects.rs` (résolution d'instances avec cycle/profondeur, pose
+atomique sur shape/void/interfaces, provenance par feature). `ObjectInstanceId`
+typé dérivé du nom ; `SemanticModel` reçoit `instances`/`instance_references`
+(serde-default). Raccord Project : `declaration_name` accepte les instances ;
+`component_library` les refuse.
+
+Mini-bipède migré : 14 instances nommées portent une pose unique partagée par
+boîtier, exclusion et contacts ; `servo_object`/`placed_servo` remplacent
+`pitch_servo`/`roll_servo` et les variantes contacts/exclusion dupliquées.
+`limb_preparation`, `estimated_left_shin`, `foot_preparation` prennent des
+paramètres `Instance`. Géométrie compilée identique : CLI check 25968 sommets/
+51660 triangles ; test bipède (28 parts/17 maillages/11 préparations, symétries,
+bornes, rebuild paramétrique) passe sans modification.
+
+Validation : dix tests d'instances ajoutés ; 173 tests workspace réussis, zéro
+ignoré ; fmt, Clippy workspace/all-targets/-D warnings, quatre tests Python,
+architecture 21 crates/36 arêtes et Ruff passent. Aucune capacité scientifique,
+aucun backend ni schéma ajouté. L'inspection native n'apporterait aucun changement
+visuel (maillage identique) hors liste de fonctions de la bibliothèque.
+Changements laissés non committés, en attente d'autorisation de checkpoint.
+
+### user
+
+lance le logiciel les contraintes doivent apparaître et être les mêmes pour chaque servo moteur.
+
+### agent
+
+Logiciel lancé : `robogen-desktop examples/mini_biped/main.rgn` sur DISPLAY=:1,
+fenêtre RoboGen 1440x831, RTX 3060, processus vivant. La source compile (CLI check
+valide, géométrie identique). Capture enregistrée dans
+docs/screenshots/instances-constraints-20261020.png (vue Conception).
+
+Les contraintes sont identiques pour chaque servo par construction : les 14
+instances partagent un seul `servo_object()` dont le `void` est `servo_exclusion()`
+et l'interface `housing` est `servo_housing_contacts()` ; chaque `instance` n'ajoute
+qu'une pose (translate/rotate) appliquée atomiquement à shape/void/interface.
+Preuve par les tests `pose_transforms_shape_voids_and_interfaces_together`,
+`repeated_instances_have_distinct_ids_and_poses` et le test bipède (11 préparations
+aux couches non vides : domaines/contacts/exclusions apparaissent).
+
+Limite : le modèle deepseek-v4-pro ne lit pas les images ; la vérification
+visuelle n'a pas pu être effectuée par l'agent. La capture est disponible pour
+inspection humaine. L'application reste ouverte.
+
+### user
+
+Les contraintes vertes ne montrent pas la même géométrie sur chaque servomoteur.
+Je veux voir l’interface commune sur les 14 servos en permanence.
+
+### agent
+
+Plan convenu pour les interfaces vertes du mini-bipède :
+- L’overlay vert dédié montre l’interface `housing` de chacun des 14 servos,
+  placée avec la pose de son instance. La géométrie locale de contact doit donc
+  rester commune, même si les instances sont orientées ou placées différemment.
+- Cet affichage est une projection visuelle des instances, pas une sélection
+  implicite de matière à préserver, d’appui ou de charge dans chaque pièce.
+- Les zones « Conserver » et « Exclure » des préparations restent propres à
+  chaque pièce. La légende et les couleurs doivent distinguer sans ambiguïté
+  l’interface répétée des régions TopOpt.
+
+Diagnostic : l’aperçu vert actuel provient de `TopologySpec.preserve` : le
+projecteur agrège ces régions de préparation, et le viewport les dessine comme
+« Conserver ». Les interfaces d’instance sont déjà transformées avec chaque
+servo, mais elles ne sont pas la source de cet overlay. Les préparations ne
+sélectionnent pas l’interface de chaque servo ; elles choisissent seulement les
+interfaces requises par la pièce concernée. Cela explique pourquoi la capture
+ne montre pas une interface verte commune sur les 14 servos.
+
+Acceptation prévue : un overlay/contrôle identifiable affiche l’interface
+`housing` sur les 14 instances dans leur pose respective ; les régions
+« Conserver »/« Exclure » gardent leur sens spécifique à la pièce ; aucun
+TopologySpec, appui, charge ou résultat d’optimisation n’est modifié par ce
+nouvel affichage. Ajouter des tests de géométrie/placement et une vérification
+native du bipède, puis documenter le comportement réel.
+
+La checklist est ajoutée à l’itération 8 du TODO. Aucune implémentation n’est
+faite pendant cette phase plan + todo.
+
+### user
+
+lance le
+
+### agent
+
+Autorisation de lancer l'implémentation de l'itération 8 : projeter l'interface
+`housing` de chaque instance servo vers un overlay dédié placé selon sa pose,
+distinct des couches TopOpt « Conserver »/« Exclure ». Exploration du chemin de
+rendu des préparations et de la projection SolidGeometry -> maillage en cours,
+puis implémentation, tests et vérification native. Aucun TopologySpec, appui,
+charge ni résultat d'optimisation ne sera modifié.
+
+### user

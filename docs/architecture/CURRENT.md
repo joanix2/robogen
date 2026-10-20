@@ -16,6 +16,14 @@ The existing dependency Project -> CAD/constraints/TopOpt is an orchestration
 boundary. Export still consumes CAD's RoboGen Mesh. These existing edges are
 explicit; the refactor adds no Cargo dependencies or persistent schemas.
 
+[ADR-015](../adr/ADR-015-instance-owned-regions.md) extends the DSL with
+`Object` values and named `instance` declarations. An instance owns its shape,
+exclusion volumes and named interfaces under one pose; `instance_shape`,
+`instance_void` and `instance_interface` project them with provenance recorded
+in `SemanticModel.instances` / `instance_references`. `ObjectInstanceId` is
+typed and name-derived. Geometry stays backend-neutral; CAD/render/export/TopOpt
+still receive ordinary SolidGeometry projections.
+
 ## Document and application
 
 `robogen-project/src/lib.rs` preserves the public facade and private Project

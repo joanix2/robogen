@@ -191,3 +191,18 @@
 - Ticket 17 : l'utilisateur demande explicitement un commit de checkpoint après
   livraison de la refonte/retrait Julia. Autorisation de consigner la tranche
   validée sans clore les objectifs Python/MVP encore ouverts ; aucun push.
+
+- Ticket 17, itération 7 : l'utilisateur demande de corriger l'association des
+  zones plein/vide à un objet. ADR-015 écrite : valeurs `Object` réutilisables et
+  déclarations `instance` nommées, projections `instance_shape`/`instance_void`/
+  `instance_interface`, `ObjectInstanceId` typé et stable (dérivé du nom), type de
+  paramètre de composant `Instance`, provenance `instance_references` dans
+  SemanticModel (champs serde-default). Les sources Solid existantes restent valides.
+  Mini-bipède migré : 14 instances de servo portent une pose unique partagée par
+  boîtier/exclusion/contacts, supprimant `pitch_servo`/`roll_servo`/`pitch_contacts`/
+  `pitch_exclusion`/`roll_contacts`/`roll_exclusion`. Géométrie compilée identique :
+  25968 sommets/51660 triangles, 28 parts/17 maillages/11 préparations (test bipède).
+  Dix tests d'instances ajoutés (types, diagnostics, poses distinctes, IDs/provenance,
+  seules interfaces choisies, compatibilité Solid, refus bibliothèque). Gates : fmt,
+  Clippy workspace, 173 tests réussis/0 ignoré, quatre tests Python, architecture
+  21/36, Ruff passent. Changements non committés, en attente d'autorisation.

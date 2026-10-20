@@ -97,3 +97,31 @@ et ne sont pas comptés comme des qualifications réussies.
 
 Le checkpoint porte sur la refonte et le retrait Julia déjà validés. Il ne
 revendique pas l'achèvement du MVP ni la qualification du remplacement Python.
+
+# Itération 7 - Zones rattachées aux instances
+
+- [x] Écrire ADR-015 avant extension DSL/IR.
+- [x] Ajouter Object, Instance, identité et projections de régions avec provenance.
+- [x] Valider diagnostics/types/poses/IDs et compatibilité des sources Solid.
+- [x] Raccorder Project et migrer les servos du mini-bipède sans poses de régions dupliquées.
+- [x] Tester une pièce sélectionnant ses seules interfaces, rebuild et historique.
+- [x] Exécuter les gates workspace (fmt, Clippy, 173 tests, Python, architecture, Ruff).
+- [ ] Inspection native et checkpoint validé (géométrie identique prouvée par test bipède + CLI ; commit sur autorisation).
+
+La tranche DSL/IR/domain est livrée : `Object`/`instance`, projections
+`instance_shape`/`instance_void`/`instance_interface`, `ObjectInstanceId` typé
+et stable, provenance `instance_references`, paramètres de composant de type
+`Instance`. Le mini-bipède migré compile à l'identique (25968 sommets/51660
+triangles, 28 parts/17 maillages/11 préparations). Dix tests d'instances ajoutés.
+Géométrie inchangée : l'inspection native n'apporterait aucun changement visuel
+hors liste de fonctions de la bibliothèque ; le commit reste en attente
+d'autorisation explicite.
+
+# Itération 8 - Interfaces vertes communes aux servos
+
+- [x] Confirmer que l’interface verte doit apparaître sur les 14 servos, quelle que soit la préparation sélectionnée.
+- [x] Séparer l’affichage visuel de l’interface des régions TopOpt propres à chaque pièce ; ne pas ajouter d’appuis/charges implicites.
+- [ ] Projeter l’interface `housing` de chaque instance servo vers un overlay placé selon sa pose.
+- [ ] Ajouter un contrôle et une légende qui distinguent l’interface servo des couches « Conserver » et « Exclure ».
+- [ ] Tester la présence des 14 interfaces et leur géométrie commune après prise en compte des poses ; vérifier que les TopologySpec restent inchangés.
+- [ ] Vérifier le parcours natif du mini-bipède et documenter le comportement dans TECHNICAL.md.
