@@ -207,6 +207,7 @@ pub fn declaration_name(declaration: &Declaration) -> &str {
         Declaration::Component(value) => &value.name,
         Declaration::Part(value) => &value.name,
         Declaration::Instance(value) => &value.name,
+        Declaration::Body(value) | Declaration::Joint(value) => &value.name,
     }
 }
 

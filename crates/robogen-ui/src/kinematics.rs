@@ -1,7 +1,10 @@
-//! Read-only 2D view of declared instances and ports.
-//!
-//! Mechanical joints are not inferred from geometry or spatial proximity.
+//! Two presentations of the same declared mechanical model.
 use super::*;
+pub(super) mod canvas;
+mod drawing;
+mod layout;
+mod symbols;
+use canvas::{DiagramMode, Projection};
 
 impl RoboGenUi {
     pub(super) fn kinematics_view(&mut self, ui: &mut Ui) {
@@ -12,88 +15,86 @@ impl RoboGenUi {
                 "Dernier modèle valide · graphe non actualisé",
             );
         }
-        ui.label("Instances et interfaces déclarées dans le DSL");
-        ui.colored_label(
-            MUTED,
-            "Articulations cinématiques non encore prises en charge.",
-        );
-        ui.small("Les interfaces affichées ne définissent pas encore les corps rigides et les articulations.");
-        let source_current = self.document.is_valid();
+        ui.horizontal_wrapped(|ui| {
+            for (mode, label) in [
+                (DiagramMode::Graph, "Graphe des liaisons"),
+                (DiagramMode::Schematic, "Schéma cinématique"),
+            ] {
+                if ui
+                    .selectable_label(self.graph_canvas.mode == mode, label)
+                    .clicked()
+                {
+                    self.graph_canvas.set_mode(mode);
+                }
+            }
+            if self.graph_canvas.mode == DiagramMode::Schematic {
+                for (projection, label) in [
+                    (Projection::Xy, "XY"),
+                    (Projection::Xz, "XZ"),
+                    (Projection::Yz, "YZ"),
+                ] {
+                    if ui
+                        .selectable_label(self.graph_canvas.projection == projection, label)
+                        .clicked()
+                    {
+                        self.graph_canvas.set_projection(projection);
+                    }
+                }
+            }
+        });
+        ui.small("Corps rigides et liaisons déclarés · configuration au repos, sans résolution de mouvement.");
         let Some(project) = self.document.project() else {
             ui.label("Aucun modèle valide disponible.");
             return;
         };
-        let instances = &project.snapshot().model.instances;
-        if instances.is_empty() {
-            ui.add_space(16.0);
-            ui.label("Aucun objet instancié dans ce document.");
+        let model = &project.snapshot().model.mechanics;
+        if model.bodies.is_empty() {
+            ui.label("Aucun corps rigide déclaré dans ce document.");
+            ui.small("Déclarez les corps (body) et les liaisons (joint) dans le DSL.");
             return;
         }
-        ui.separator();
-        ScrollArea::both()
-            .id_salt("kinematics_graph_canvas")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                let columns = (ui.available_width() / 235.0).floor().max(1.0) as usize;
-                let mut row_height = 0.0_f32;
-                let mut y = 12.0;
-                let origin = ui.cursor().min;
-                let mut bottom = 0.0_f32;
-                for (index, instance) in instances.values().enumerate() {
-                    let column = index % columns;
-                    if column == 0 && index > 0 {
-                        y += row_height + 24.0;
-                        row_height = 0.0;
-                    }
-                    let height = 68.0 + instance.interfaces.len().max(1) as f32 * 26.0;
-                    row_height = row_height.max(height);
-                    let rect = egui::Rect::from_min_size(
-                        origin + vec2(column as f32 * 235.0, y),
-                        vec2(220.0, height),
-                    );
-                    let response = ui.allocate_rect(rect, Sense::click());
-                    let painter = ui.painter_at(rect);
-                    painter.rect_filled(rect, 7.0, PANEL);
-                    painter.rect_stroke(
-                        rect,
-                        7.0,
-                        Stroke::new(1.0, BORDER),
-                        egui::StrokeKind::Inside,
-                    );
-                    painter.text(
-                        rect.left_top() + vec2(12.0, 18.0),
-                        egui::Align2::LEFT_CENTER,
-                        &instance.name,
-                        FontId::proportional(12.0),
-                        TEXT,
-                    );
-                    painter.text(
-                        rect.left_top() + vec2(12.0, 43.0),
-                        egui::Align2::LEFT_CENTER,
-                        format!("{} interface(s)", instance.interfaces.len()),
-                        FontId::proportional(11.0),
-                        MUTED,
-                    );
-                    for (port, name) in instance.interfaces.keys().enumerate() {
-                        let point = rect.left_top() + vec2(18.0, 70.0 + port as f32 * 26.0);
-                        painter.circle_filled(point, 4.0, SUCCESS);
-                        painter.text(
-                            point + vec2(12.0, 0.0),
-                            egui::Align2::LEFT_CENTER,
-                            name,
-                            FontId::monospace(11.0),
-                            TEXT,
-                        );
-                    }
-                    let response = response
-                        .on_hover_text("Ouvrir la déclaration de cette instance dans le DSL");
-                    if response.clicked() && source_current {
-                        self.source_selection = Some(instance.span);
-                        self.design_tab = DesignTab::Dsl;
-                    }
-                    bottom = bottom.max(y + height + 12.0);
-                }
-                ui.set_min_size(vec2(columns as f32 * 235.0 - 15.0, bottom));
-            });
+        let mut open_source = false;
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Cadrer").clicked() {
+                self.graph_canvas.fit_view();
+            }
+            if self.graph_canvas.mode == DiagramMode::Graph && ui.button("Réorganiser").clicked() {
+                self.graph_canvas.reset_layout();
+            }
+            ui.label(format!(
+                "{} corps · {} liaisons",
+                model.bodies.len(),
+                model.joints.len()
+            ));
+            if let Some((name, _)) = self.graph_canvas.selection_source(model) {
+                open_source = ui
+                    .add_enabled(
+                        self.document.is_valid(),
+                        egui::Button::new("Ouvrir dans le DSL"),
+                    )
+                    .clicked();
+                ui.label(name);
+            }
+        });
+        ui.small(if self.graph_canvas.mode == DiagramMode::Graph {
+            "Molette : zoom · fond : déplacer · corps : sélectionner / déplacer · liaison : sélectionner"
+        } else {
+            "Molette : zoom · fond : déplacer · symbole : sélectionner · ⊙ : axe perpendiculaire au plan"
+        });
+        let selected_source = self.graph_canvas.show(ui, model);
+        if self.document.is_valid() {
+            if let Some(span) = selected_source.or_else(|| {
+                open_source
+                    .then(|| {
+                        self.graph_canvas
+                            .selection_source(model)
+                            .map(|(_, span)| span)
+                    })
+                    .flatten()
+            }) {
+                self.source_selection = Some(span);
+                self.design_tab = DesignTab::Dsl;
+            }
+        }
     }
 }

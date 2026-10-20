@@ -101,6 +101,8 @@ pub struct SemanticModel {
     pub instances: BTreeMap<String, ObjectInstance>,
     #[serde(default)]
     pub instance_references: Vec<InstanceRegionReference>,
+    #[serde(default)]
+    pub mechanics: robogen_domain::mechanics::MechanicalModel,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -141,6 +143,7 @@ pub fn lower(module: &Module) -> LowerOutput {
             Declaration::Part(value) => (&value.name, value.span),
             Declaration::Component(value) => (&value.name, value.span),
             Declaration::Instance(value) => (&value.name, value.span),
+            Declaration::Body(value) | Declaration::Joint(value) => (&value.name, value.span),
         };
         if !names.insert(name) {
             context.error("E230", format!("duplicate declaration `{name}`"), span);
@@ -415,6 +418,7 @@ pub fn lower(module: &Module) -> LowerOutput {
         }
     }
     model.instance_references = std::mem::take(&mut context.instance_references);
+    context.lower_mechanics(module, &mut model);
     LowerOutput {
         model,
         diagnostics: context.diagnostics,
@@ -589,3 +593,5 @@ mod tests {
         Ok(())
     }
 }
+
+mod mechanics;

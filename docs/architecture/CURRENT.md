@@ -57,9 +57,12 @@ as an egui texture. Eframe composes the application through wgpu. This is not a
 new native CAD GPU pipeline; CPU preview costs remain a performance concern.
 The Design/Optimization/Learning navigation and unavailable states are retained.
 Design tabs are ordered DSL, Graphe cinématique 2D, Vue 3D, with DSL selected at
-startup. The 2D panel presents only declared instances/interfaces and valid source
-links; mechanical articulations remain explicitly unsupported. No mechanical
-connectivity is inferred from geometry or introduced by this presentation view.
+startup. The 2D panel is a pan/zoom/picking canvas over the declared mechanical
+model (ADR-016): `body`/`joint` declarations resolve in IR into Domain
+`MechanicalModel`, Robotics validates it and Project invokes that validation. It
+shows a joint graph (layered layout, draggable nodes) and an XY/XZ/YZ rest-pose
+kinematic schematic. UI owns only layout, projection, symbols and selection. No
+joint is inferred from geometry; loops are accepted, with no closure/mobility solve.
 
 
 Declared object interfaces are automatically projected into

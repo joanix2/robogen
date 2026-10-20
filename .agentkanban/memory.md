@@ -235,3 +235,19 @@
   179 tests workspace passent/0 ignoré, fmt/Clippy/builddesktop, quatre tests
   Python, frontières21/36, Ruff/actionlint passent. Captures design-tabs-*-
   20261020.png inspectées ; application reconstruite laissée ouverte sur DSL.
+
+- 2026-10-20, ticket17 itération10 : remplacement des cartes par un canevas
+  2D natif egui (courbes, nœuds circulaires, ports, zoom ancré, pan, déplacement
+  des nœuds, sélection/source). Project expose ReferenceGraph avec IDs types,
+  catégories forme/vide/interface et spans, projeté des références existantes.
+  ADR-016 : une arête de référence n'est ni une liaison rigide ni un joint ;
+  aucune proximité n'infère de connexion. Corps/axes/limites/validation mécanique
+  restent à implémenter dans leurs domaines. Dispositions de nœuds transitoires,
+  aucun déplacement de composant ou patch DSL ; navigation stale bloquée.
+
+- 2026-10-20, ticket17 itérations 10 bis/11 : graphe mécanique déclaré (body/joint, ADR-016)
+  rendu en graphe des liaisons (arbre par couches) et schéma cinématique XY/XZ/YZ.
+  Étau (examples/kinematic_vise) = référence ; bipède = 15 corps/14 pivots d'intention.
+  Libellés placés par recherche de positions libres (place_label). 202 tests, fmt, Clippy,
+  frontières 21/37 passent ; captures kinematic-*-20261020.png. Ni mobilité ni fermeture
+  de boucle ; non committé en attente d'autorisation.

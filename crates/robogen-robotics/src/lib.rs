@@ -1,6 +1,9 @@
 use robogen_domain::EntityId;
 use serde::{Deserialize, Serialize};
 
+mod mechanics;
+pub use mechanics::validate_mechanism;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum JointType {
     Fixed,

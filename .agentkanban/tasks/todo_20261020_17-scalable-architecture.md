@@ -153,3 +153,34 @@ Validation itération9 : 179 tests réussis/0 ignoré, fmt/Clippy workspace, bui
 desktop ; quatre tests Python, frontières21/36, Ruff/actionlint. Trois captures
 natives inspectées ; application laissée sur DSL. Checkpoint de la tranche UI
 validée préparé, sans clore la synthèse mécanique multi-corps demandée.
+
+# Itération 10 - Canevas de graphe interactif
+
+- [ ] Projeter les références DSL vers des nœuds/arêtes typés avec provenance.
+- [ ] Remplacer les cartes par un moteur de dessin 2D avec zoom, pan, cadrage, déplacement et sélection.
+- [ ] Distinguer références géométriques et articulations absentes ; protéger la source obsolète.
+- [ ] Tester projection et interactions, vérifier les gates et le rendu natif.
+- [ ] Documenter les limites et committer la tranche vérifiée.
+
+# Itération 10 bis - Graphe mécanique et schéma cinématique
+
+- [x] Remplacer la projection de références par le contrat corps/liaisons typés.
+- [x] Parser/résoudre body et joint, conserver IDs, unités et provenance.
+- [x] Valider références, axes, pas hélicoïdal et appartenances sans interdire les boucles.
+- [x] Afficher graphe des liaisons et schéma projeté depuis le même modèle.
+- [x] Ajouter l'étau illustratif et la cinématique de conception explicite du bipède.
+- [x] Tests ciblés/intégration, gates et documentation (commit en attente d'autorisation, voir itération 11).
+
+# Itération 11 - Lisibilité du graphe et vérification native
+
+L'itération 10 (graphe de références géométriques) est remplacée par l'itération
+10 bis (ADR-016) ; ses cases restent non cochées car ce graphe n'est pas livré.
+
+- [x] Reprendre l'état laissé par la session précédente (fmt, Clippy, tests) et corriger le lint de test.
+- [x] Remplacer le placement par forces (illisible à 15 corps) par une disposition en arbre par couches, racine = corps fixé au bâti.
+- [x] Placer les libellés de liaison sans recouvrement des autres libellés, des noms et des nœuds (graphe et schéma).
+- [x] Tests : placement (racine, boucle, 21 corps ramifiés) et non-recouvrement des textes (étau 3 projections, bipède 14 liaisons) ; mutation vérifiée.
+- [x] Vérification native étau + bipède à 1440x831, captures docs/screenshots/kinematic-*-20261020.png.
+- [x] Aligner TECHNICAL.md, CURRENT.md et README.md sur le modèle mécanique déclaré.
+- [x] Gates : fmt, Clippy -D warnings, 202 tests, 4 tests Python, frontières 21 crates/37 arêtes, git diff --check.
+- [ ] Revue du diff et commit local sur autorisation explicite.

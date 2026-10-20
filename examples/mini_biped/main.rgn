@@ -676,3 +676,94 @@ part RightArmSupport {
     material: lib_servo_ServoPlastic;
     body = limb_preparation(-SHOULDER_SPACING / 2, ELBOW_Z, SHOULDER_Z, RightElbowPitchServo, RightShoulderPitchServo);
 }
+
+// Declared rest kinematics (design intent; no motion/assembly qualification).
+// A joint's parent carries its servo housing; its child carries the output.
+// Origins are the placed shaft faces above. Axes are those same local Z axes
+// rotated into the document frame. Support preparations are not body memberships:
+// their housing/output attachment contracts remain to be completed and validated.
+body TorsoBody { parts: [TorsoBoard, PelvisBattery, HeadCamera]; }
+body LeftHipCarrierBody { parts: []; }
+body LeftThighBody { parts: []; }
+body LeftShinBody { parts: []; }
+body LeftAnkleCarrierBody { parts: []; }
+body LeftFootBody { parts: []; }
+body LeftUpperArmBody { parts: []; }
+body LeftForearmBody { parts: []; }
+joint LeftHipRollJoint {
+    kind: revolute; parent: TorsoBody; child: LeftHipCarrierBody;
+    origin: [LEG_SPACING / 2, -20 mm, HIP_ROLL_Z]; axis: [0, -1, 0];
+    actuator: LeftHipRollServo;
+}
+joint LeftHipPitchJoint {
+    kind: revolute; parent: LeftHipCarrierBody; child: LeftThighBody;
+    origin: [LEG_SPACING / 2, 0 mm, HIP_PITCH_Z]; axis: [1, 0, 0];
+    actuator: LeftHipPitchServo;
+}
+joint LeftKneePitchJoint {
+    kind: revolute; parent: LeftThighBody; child: LeftShinBody;
+    origin: [LEG_SPACING / 2, 0 mm, KNEE_Z]; axis: [1, 0, 0];
+    actuator: LeftKneePitchServo;
+}
+joint LeftAnklePitchJoint {
+    kind: revolute; parent: LeftShinBody; child: LeftAnkleCarrierBody;
+    origin: [LEG_SPACING / 2, 0 mm, ANKLE_PITCH_Z]; axis: [1, 0, 0];
+    actuator: LeftAnklePitchServo;
+}
+joint LeftAnkleRollJoint {
+    kind: revolute; parent: LeftAnkleCarrierBody; child: LeftFootBody;
+    origin: [LEG_SPACING / 2, -20 mm, ANKLE_ROLL_Z]; axis: [0, -1, 0];
+    actuator: LeftAnkleRollServo;
+}
+joint LeftShoulderPitchJoint {
+    kind: revolute; parent: TorsoBody; child: LeftUpperArmBody;
+    origin: [SHOULDER_SPACING / 2, 0 mm, SHOULDER_Z]; axis: [1, 0, 0];
+    actuator: LeftShoulderPitchServo;
+}
+joint LeftElbowPitchJoint {
+    kind: revolute; parent: LeftUpperArmBody; child: LeftForearmBody;
+    origin: [SHOULDER_SPACING / 2, 0 mm, ELBOW_Z]; axis: [1, 0, 0];
+    actuator: LeftElbowPitchServo;
+}
+body RightHipCarrierBody { parts: []; }
+body RightThighBody { parts: []; }
+body RightShinBody { parts: []; }
+body RightAnkleCarrierBody { parts: []; }
+body RightFootBody { parts: []; }
+body RightUpperArmBody { parts: []; }
+body RightForearmBody { parts: []; }
+joint RightHipRollJoint {
+    kind: revolute; parent: TorsoBody; child: RightHipCarrierBody;
+    origin: [-LEG_SPACING / 2, -20 mm, HIP_ROLL_Z]; axis: [0, -1, 0];
+    actuator: RightHipRollServo;
+}
+joint RightHipPitchJoint {
+    kind: revolute; parent: RightHipCarrierBody; child: RightThighBody;
+    origin: [-LEG_SPACING / 2, 0 mm, HIP_PITCH_Z]; axis: [-1, 0, 0];
+    actuator: RightHipPitchServo;
+}
+joint RightKneePitchJoint {
+    kind: revolute; parent: RightThighBody; child: RightShinBody;
+    origin: [-LEG_SPACING / 2, 0 mm, KNEE_Z]; axis: [-1, 0, 0];
+    actuator: RightKneePitchServo;
+}
+joint RightAnklePitchJoint {
+    kind: revolute; parent: RightShinBody; child: RightAnkleCarrierBody;
+    origin: [-LEG_SPACING / 2, 0 mm, ANKLE_PITCH_Z]; axis: [-1, 0, 0];
+    actuator: RightAnklePitchServo;
+}
+joint RightAnkleRollJoint {
+    kind: revolute; parent: RightAnkleCarrierBody; child: RightFootBody;
+    origin: [-LEG_SPACING / 2, -20 mm, ANKLE_ROLL_Z]; axis: [0, -1, 0];
+    actuator: RightAnkleRollServo;
+}
+joint RightShoulderPitchJoint {
+    kind: revolute; parent: TorsoBody; child: RightUpperArmBody;
+    origin: [-SHOULDER_SPACING / 2, 0 mm, SHOULDER_Z]; axis: [-1, 0, 0];
+    actuator: RightShoulderPitchServo;
+}
+joint RightElbowPitchJoint {
+    kind: revolute; parent: RightUpperArmBody; child: RightForearmBody;
+    origin: [-SHOULDER_SPACING / 2, 0 mm, ELBOW_Z]; axis: [-1, 0, 0];
+    actuator: RightElbowPitchServo;
+}

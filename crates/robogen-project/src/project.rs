@@ -19,6 +19,7 @@ pub fn compile_source(source: &str) -> Result<SemanticModel, Vec<Diagnostic>> {
     let lowered = lower(&module);
     diagnostics.extend(lowered.diagnostics);
     let mut model = lowered.model;
+    diagnostics.extend(robogen_robotics::validate_mechanism(&model.mechanics));
     solve_constraints(&mut model, &mut diagnostics);
     if diagnostics
         .iter()
@@ -49,6 +50,7 @@ impl Project {
         let lowered = lower(&ast);
         diagnostics.extend(lowered.diagnostics);
         let mut model = lowered.model;
+        diagnostics.extend(robogen_robotics::validate_mechanism(&model.mechanics));
         if diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error)

@@ -86,7 +86,7 @@ fn workflow_views_render_headlessly_without_actions() {
                 WorkspaceMode::Design,
                 DesignTab::Kinematics,
                 0,
-                "Aucun objet instancié",
+                "Aucun corps rigide déclaré",
             ),
             (
                 WorkspaceMode::Optimization,

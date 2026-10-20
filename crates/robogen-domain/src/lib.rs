@@ -44,6 +44,8 @@ typed_id!(MaterialId);
 typed_id!(SketchId);
 typed_id!(PartId);
 typed_id!(ObjectInstanceId);
+typed_id!(RigidBodyId);
+typed_id!(JointId);
 typed_id!(FeatureId);
 typed_id!(EntityId);
 typed_id!(OptimizationId);
@@ -565,3 +567,5 @@ mod tests {
         assert!(taxonomy.register_category(extension_category()).is_ok());
     }
 }
+
+pub mod mechanics;

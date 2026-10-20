@@ -1,0 +1,45 @@
+module kinematic_vise;
+// Illustrative vise: one mechanism, shared graph, rest schematic and 3D parts.
+// Geometry and dimensions are explanatory, not a qualified vise design.
+parameter OPENING = 70 mm;
+material SteelDisplay { density: 7800 kg/m3; young: 200 GPa; poisson: 0.3; yield_strength: 250 MPa; }
+part BaseGeometry {
+    material: SteelDisplay;
+    body = color(70, 110, 220, compound(
+        translate([-20 mm, -15 mm, -15 mm], box([150 mm, 15 mm, 30 mm])),
+        translate([80 mm, 0 mm, -15 mm], box([15 mm, 65 mm, 30 mm]))));
+}
+part JawGeometry {
+    material: SteelDisplay;
+    body = color(100, 190, 70, translate([80 mm - OPENING, 0 mm, -15 mm], box([15 mm, 65 mm, 30 mm])));
+}
+part ScrewGeometry {
+    material: SteelDisplay;
+    body = color(230, 155, 40, translate([80 mm - OPENING, 40 mm, 0 mm],
+        rotate(0 deg, 90 deg, 0 deg, cylinder(radius: 4 mm, height: OPENING + 40 mm))));
+}
+part HandleGeometry {
+    material: SteelDisplay;
+    body = color(235, 215, 60, translate([120 mm, 10 mm, 0 mm],
+        rotate(-90 deg, 0 deg, 0 deg, cylinder(radius: 3 mm, height: 60 mm))));
+}
+body A { parts: [BaseGeometry]; grounded: true; }
+body B { parts: [JawGeometry]; }
+body C { parts: [ScrewGeometry]; }
+body D { parts: [HandleGeometry]; }
+joint AB {
+    kind: prismatic; parent: A; child: B;
+    origin: [80 mm - OPENING, 0 mm, 0 mm]; axis: [1, 0, 0];
+}
+joint BC {
+    kind: revolute; parent: B; child: C;
+    origin: [80 mm - OPENING, 40 mm, 0 mm]; axis: [1, 0, 0];
+}
+joint AC {
+    kind: helical; parent: A; child: C;
+    origin: [87.5 mm, 40 mm, 0 mm]; axis: [1, 0, 0]; pitch: 2 mm;
+}
+joint CD {
+    kind: cylindrical; parent: C; child: D;
+    origin: [120 mm, 40 mm, 0 mm]; axis: [0, 1, 0];
+}

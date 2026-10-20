@@ -7,8 +7,10 @@ simulation/optimisation pipelines are projections of the same semantic model.
 ## Current vertical slice
 
 Design opens on the DSL editor. Its tabs are ordered **DSL → Graphe cinématique
-2D → Vue 3D**. The 2D view shows declared object interfaces; mechanical joints
-are not yet supported.
+2D → Vue 3D**. The 2D canvas draws the rigid bodies and typed joints declared with
+`body`/`joint` in the DSL, either as a joint graph or as a projected kinematic
+schematic (pan, zoom, node dragging, source navigation). See
+`Exemples > Étau — cinématique`. Motion, mobility and loop closure are not solved.
 
 The Julia backend has been removed ([ADR-014](docs/adr/ADR-014-remove-julia-backend.md)).
 Minimum-mass optimization is explicitly unavailable on CPU/CUDA until a replacement

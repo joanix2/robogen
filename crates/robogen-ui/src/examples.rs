@@ -89,6 +89,17 @@ impl RoboGenUi {
         self.mode = WorkspaceMode::Design;
     }
 
+    pub fn load_kinematic_vise_example(&mut self) {
+        self.set_dsl_source(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/kinematic_vise/main.rgn"
+        )));
+        self.mode = WorkspaceMode::Design;
+        self.design_tab = DesignTab::Kinematics;
+        self.graph_canvas = Default::default();
+        self.camera = Camera::default();
+    }
+
     pub fn load_manual_topology_example(&mut self) {
         self.set_dsl_source(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),

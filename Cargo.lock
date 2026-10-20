@@ -2809,6 +2809,7 @@ dependencies = [
  "robogen-domain",
  "robogen-dsl",
  "robogen-ir",
+ "robogen-robotics",
  "robogen-topopt",
  "serde",
  "thiserror 2.0.20",

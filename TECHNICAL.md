@@ -82,22 +82,39 @@ this presentation overlay.
 
 Design uses three tabs, ordered DSL, Graphe cinématique 2D, Vue 3D. DSL is the
 initial selection. Explicit example/geometry actions retain their existing 3D
-selection; source links select DSL. The middle tab reads declared instances and
-named interfaces from the current semantic snapshot and provides source links.
-It shows empty/stale document states and explicitly marks mechanical joints as
-not yet supported. It does not infer joints or rigid attachments from positions.
-The full requested mechanical synthesis target is preserved in
-[the user specification](docs/engineering/MECHANICAL_SYNTHESIS.md); this UI
-change does not implement its optimization or mobility guarantees.
+selection; source links select DSL. The middle tab is a native interactive 2D
+canvas fed by the declared mechanical model (ADR-016), not by geometric proximity.
 
-Verification: 179 workspace tests passed, zero ignored; fmt, workspace Clippy/
-all-targets/-D warnings and desktop build passed. Two focused navigation tests
-exercise actual clicks at 1080x680 and 1440x831, valid/stale source links and
-empty/declared-port views. The old camera test now explicitly opens the 3D tab.
-Four Python boundary tests, the 21-crate/36-edge check, Ruff and actionlint pass.
-Native captures `docs/screenshots/design-tabs-*-20261020.png` were inspected;
-the application remains open on DSL. Local Graphify refreshed without LLM
-extraction: 1587 nodes, 3541 edges, 188 communities.
+The DSL declares `body Name { parts: [...]; grounded: true; }` and
+`joint Name { kind; parent; child; origin; axis; pitch; actuator }` with kinds
+fixed, revolute, prismatic, cylindrical and helical. Origins are lengths and axes
+unit directions in the document rest frame; `actuator` optionally names a placed
+servo instance. IR resolves names/quantities into `SemanticModel.mechanics`
+(Domain `MechanicalModel`), Robotics validates identities, endpoints, axes and
+the helical pitch (E360-E379), and Project runs that validation on every compile.
+Closed chains such as the vise triangle are allowed; no loop closure, mobility
+count or motion is computed. A document without bodies shows an explicit empty
+state: geometry alone never creates a graph.
+
+Two views share that one model. *Graphe des liaisons*: bodies are nodes, joints are
+edges labelled with kind, axis and helical pitch. The layout is a deterministic
+layered tree (root = grounded body, else the most connected one; loop chords do not
+change layers). *Schéma cinématique*: standard joint symbols oriented by the declared
+axis and projected on XY, XZ or YZ at rest; an axis perpendicular to the plane is
+drawn as a dotted circle. Labels avoid each other, node names and, in the graph,
+node discs by candidate-position search (`place_label`).
+
+Wheel zoom is anchored at the pointer; drag the background to pan, or a graph node
+to rearrange it. Cadrer fits the view; Réorganiser restores the automatic layout.
+Selecting a body or joint enables Ouvrir dans le DSL (its source span). Dragging is
+transient view state, never a pose mutation or an undo command. For an invalid
+source the last valid graph stays visible with a warning and source navigation is
+disabled. Examples: `examples/kinematic_vise` (4 bodies, prismatic/revolute/
+helical/cylindrical loop) and the mini biped's 15 bodies/14 revolute joints, whose
+parent carries the servo housing and child the output (design intent only; support
+parts are not assigned to bodies). Captures: `docs/screenshots/kinematic-vise-*`
+and `kinematic-biped-graph-20261020.png`, 1440x831.
+
 
 ## Native CUDA Mass Solver (2026-10-08, Iteration 16)
 

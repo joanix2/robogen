@@ -186,6 +186,10 @@ impl RoboGenUi {
                                 self.load_biped_example();
                                 ui.close_menu();
                             }
+                            if ui.button("Étau — cinématique").clicked() {
+                                self.load_kinematic_vise_example();
+                                ui.close_menu();
+                            }
                             if ui.button("Support contraint").clicked() {
                                 self.set_dsl_source(DEFAULT_DSL);
                                 ui.close_menu();

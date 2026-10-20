@@ -64,6 +64,7 @@ pub enum UiAction {
 pub struct RoboGenUi {
     mode: WorkspaceMode,
     design_tab: DesignTab,
+    graph_canvas: kinematics::canvas::GraphCanvas,
     optimization_tab: usize,
     selected_terrain: usize,
     taxonomy_filter: String,
@@ -119,6 +120,7 @@ impl Default for RoboGenUi {
         let mut state = Self {
             mode: WorkspaceMode::Design,
             design_tab: DesignTab::Dsl,
+            graph_canvas: Default::default(),
             optimization_tab: 0,
             selected_terrain: 1,
             taxonomy_filter: String::new(),

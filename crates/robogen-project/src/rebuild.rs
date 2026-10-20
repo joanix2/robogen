@@ -53,6 +53,7 @@ impl Project {
         let lowered = lower(&ast);
         let mut diagnostics = lowered.diagnostics;
         let mut model = lowered.model;
+        diagnostics.extend(robogen_robotics::validate_mechanism(&model.mechanics));
         solve_constraints(&mut model, &mut diagnostics);
         if diagnostics
             .iter()

@@ -758,3 +758,75 @@ Checkpoint local de la tranche UI validée préparé conformément aux autorisat
 précédentes ; pas de push/changement de branche ou lane.
 
 ### user
+
+### agent
+
+Itération10 autorisée par la demande de remplacement des cartes : canevas 2D
+natif egui, nœuds circulaires, ports et arêtes des références existantes du DSL,
+cadrage automatique, zoom ancré sous le pointeur, pan, déplacement de nœuds et
+sélection avec accès explicite à la source. Projection typée dans Project ;
+aucune inférence de joint à partir des positions. Les arêtes distinguent forme,
+vide et interface : ce sont des références géométriques, pas une preuve de
+liaison rigide. Les articulations/axes restent non déclarés et signalés. Cette
+limite empêche de prétendre livrer dès maintenant une chaîne cinématique validée.
+Vérifications : provenance des arêtes, aucune arête inventée, cycle de vue sans
+mutation du DSL, interactions réelles, source invalide, gates et capture native.
+
+### user
+
+### user
+
+Exemple visuel fourni : étau avec modèle3D, graphe de quatre corps A/B/C/D
+et liaisons glissière, pivot, hélicoïdale, pivot glissant ; schémas cinématiques
+spatiaux et plans du même mécanisme.
+
+### agent
+
+Correction de périmètre de l'itération10 : le graphe de références géométriques
+réalisé et testé (183 tests passés) ne répond pas au graphe métier illustré.
+Il n'est pas livré/committé comme graphe cinématique. Le canevas est réutilisé
+pour des corps rigides et liaisons typées déclarés dans le DSL. Contrat commun
+dans Domain, résolution des noms/unités dans IR, validation mécanique de base
+dans Robotics, orchestration Project ; aucun moteur physique lancé.
+
+Syntaxe visée : body Nom { parts: [...]; grounded: true/false; }, puis joint Nom
+{ kind: revolute/prismatic/cylindrical/helical/fixed; parent: Corps; child: Corps;
+origin: [longueurs]; axis: [scalaires]; pitch: longueur pour hélicoïdale;
+actuator: Instance facultative; }. Axe/origine dans le repère document au repos.
+Le graphe affichera type et axe ; le schéma plan projettera ces mêmes liaisons
+avec symboles. Boucles autorisées (l'étau fourni en contient), pas de solveur
+de fermeture ni de certification de mobilité. Exemple d'étau illustratif et
+chaîne de conception du bipède déclarée explicitement ; ses supports actuels ne
+seront pas attribués à des corps arbitraires tant que les fixations rotor/boîtier
+ne sont pas définies. Les correspondances d'actionneurs seront conservées.
+
+### user
+
+### agent
+
+Reprise de la session interrompue (graphe mécanique ADR-016). État trouvé : corps/liaisons
+déclarés en DSL, validés (Robotics), orchestrés (Project) et affichés en graphe + schéma
+projeté ; fmt/Clippy à corriger (formatage, lint de test). Corrigés.
+
+Contrôle natif sur l'étau : le graphe reproduit l'illustration (A bâti, boucle A-B-C avec
+glissière AB, pivot BC, hélicoïdale AC, pivot glissant CD vers D). Défauts observés puis
+corrigés : (1) libellés AC/CD superposés dans le schéma ; (2) graphe du bipède illisible
+(placement par forces, 15 corps entassés). Désormais : disposition en arbre par couches
+(racine = corps fixé au bâti, sinon le plus connecté ; les cordes de boucle ne changent pas
+les couches) et placement des libellés par recherche de positions libres, évitant aussi
+noms et nœuds. Aucun changement de contrat DSL/IR/Domain.
+
+Preuves : tests de placement (racine, boucle, 21 corps ramifiés) et de non-recouvrement
+des textes (étau en XY/XZ/YZ, graphe étau, graphe bipède 14 liaisons) ; le test échoue
+sans le correctif. 202 tests workspace réussis/0 ignoré, fmt, Clippy -D warnings,
+frontières 21 crates/37 arêtes (Project -> Robotics, ADR-016), 4 tests Python,
+git diff --check. Captures 1440x831 : docs/screenshots/kinematic-vise-graph-20261020.png,
+kinematic-vise-schematic-20261020.png, kinematic-biped-graph-20261020.png.
+
+Limites : repos seulement ; ni mobilité, ni fermeture de boucle, ni mouvement. Les corps
+du bipède sont une intention de conception (parts: [] pour la plupart) : les supports ne
+sont pas attribués à des corps tant que les fixations rotor/boîtier ne sont pas définies.
+Le schéma XY du bipède (axes hors plan) n'a pas été inspecté nativement. Changements non
+committés, en attente d'autorisation ; aucun push ni changement de lane.
+
+### user

@@ -21,6 +21,8 @@ pub enum Declaration {
     Part(PartDecl),
     Component(ComponentDecl),
     Instance(InstanceDecl),
+    Body(PropertyBlock),
+    Joint(PropertyBlock),
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -64,11 +66,13 @@ pub struct ParameterDecl {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct MaterialDecl {
+pub struct PropertyBlock {
     pub name: String,
     pub fields: Vec<Field>,
     pub span: SourceSpan,
 }
+
+pub type MaterialDecl = PropertyBlock;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Field {
@@ -330,7 +334,11 @@ impl Parser {
             let declaration = if self.take_keyword("parameter") {
                 self.parameter().map(Declaration::Parameter)
             } else if self.take_keyword("material") {
-                self.material().map(Declaration::Material)
+                self.property_block().map(Declaration::Material)
+            } else if self.take_keyword("body") {
+                self.property_block().map(Declaration::Body)
+            } else if self.take_keyword("joint") {
+                self.property_block().map(Declaration::Joint)
             } else if self.take_keyword("sketch") {
                 self.sketch().map(Declaration::Sketch)
             } else if self.take_keyword("part") {
@@ -473,14 +481,14 @@ impl Parser {
         })
     }
 
-    fn material(&mut self) -> Option<MaterialDecl> {
+    fn property_block(&mut self) -> Option<PropertyBlock> {
         let start = self.previous_span().start;
-        let name = self.take_ident("material name")?;
+        let name = self.take_ident("declaration name")?;
         self.expect_symbol('{');
         let mut fields = Vec::new();
         while !self.at_symbol('}') && !self.at_eof() {
             let field_start = self.peek().span.start;
-            let Some(field_name) = self.take_ident("material property") else {
+            let Some(field_name) = self.take_ident("property name") else {
                 self.recover_statement();
                 continue;
             };
@@ -497,7 +505,7 @@ impl Parser {
             });
         }
         let end = self.expect_symbol('}').end;
-        Some(MaterialDecl {
+        Some(PropertyBlock {
             name,
             fields,
             span: SourceSpan::new(start, end),

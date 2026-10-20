@@ -12,6 +12,7 @@ robogen-constraints = { path = "../robogen-constraints" }
 robogen-domain = { path = "../robogen-domain" }
 robogen-dsl = { path = "../robogen-dsl" }
 robogen-ir = { path = "../robogen-ir" }
+robogen-robotics = { path = "../robogen-robotics" }
 robogen-topopt = { path = "../robogen-topopt" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"

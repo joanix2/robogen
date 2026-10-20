@@ -35,6 +35,13 @@ pub fn component_library(
     let mut has_entrypoint = false;
     for declaration in &module.declarations {
         let name = match declaration {
+            Declaration::Body(value) | Declaration::Joint(value) => {
+                return Err(vec![Diagnostic::error(
+                    "E330",
+                    "component libraries cannot export mechanical declarations",
+                    value.span,
+                )]);
+            }
             Declaration::Instance(value) => {
                 return Err(vec![Diagnostic::error(
                     "E330",
@@ -139,7 +146,7 @@ pub fn component_library(
                 ));
                 text
             }
-            Declaration::Instance(_) => continue,
+            Declaration::Instance(_) | Declaration::Body(_) | Declaration::Joint(_) => continue,
             Declaration::Part(_) => continue,
             Declaration::Sketch(_) => continue,
         };
