@@ -641,3 +641,120 @@ Préparation du checkpoint local de la correction validée, conformément aux
 autorisations de commits précédentes ; aucun push ni changement de branche.
 
 ### user
+
+### user
+
+Le servo est un nœud de graphe : exclusion de son volume, régions d'addition
+aux greffes, entrées/sorties mécaniques. Deux fixations à vis du boîtier et une
+fixation sur la tête de rotation. Interdire de relier rigidement la tête aux
+fixations de ce même servo, mais autoriser entrée d'un moteur vers sortie d'un
+autre. C'est ce type de contrainte que le modèle doit permettre de définir.
+
+### agent
+
+Cadrage mécanique précisé, sans nouvelle implémentation à ce stade. Les interfaces
+ObjectInstance actuelles portent géométrie/nom/provenance ; elles ne définissent
+pas encore des groupes rigides, articulations ou compatibilités de liaison.
+robogen-assembly et RobotModel/Joint sont encore des contrats partiels ; le
+correctif d'affichage des fixations est committé dans bb41670.
+
+Modèle proposé : trois ports géométriques (vis1, vis2, sortie/palonnier), deux
+groupes rigides internes (boîtier et sortie), une articulation motorisée entre
+ces groupes. Les deux fixations à vis appartiennent au même groupe boîtier.
+Entrée/sortie est ici un rôle de liaison mécanique, pas une copie des charges
+ni une connexion électrique. Chaque port garde son ID d'instance, son repère
+local, son appartenance rigide et ses régions de matière/exclusion ; une liaison
+de support référence les ports effectivement joints.
+
+Règles proposées : boîtier A/vis1 + boîtier A/vis2 autorisé ; sortie A + boîtier B
+autorisé si interfaces/poses/dégagements compatibles ; boîtier A + sortie A
+interdit pour une liaison rigide. La vérification doit aussi détecter les chemins
+indirects à travers plusieurs pièces : les deux côtés d'une articulation ne
+doivent pas se retrouver dans la même composante de liaisons rigides. Ne pas
+interdire tous les cycles du graphe cinématique : certaines chaînes fermées
+peuvent être légitimes et demandent une qualification distincte. Cette règle
+d'identification rigide est nécessaire mais ne valide pas à elle seule les
+débattements, collisions ou la mobilité d'une chaîne.
+
+Les ports géométriques peuvent être générés pour toutes les instances ; la pièce
+imprimée ne doit conserver que les régions des ports qu'elle raccorde. Volume
+occupé/dégagements empêchent d'empiéter sur le servo ; une liaison à la sortie
+requiert les vraies interfaces de palonnier et de retenue (non qualifiées dans
+le mini-bipède actuel). Leur absence ne doit pas être remplacée par une fixation
+inventée. Charges/cas, domaine et matière restent propres à la pièce.
+
+Ce changement appelle un contrat de ports/groupes/articulations et une ADR
+avant extension DSL/IR/assembly/robotics ; pas de mécanique dans les widgets.
+Cas de tests à prévoir : deux vis du même boîtier, sortie A vers boîtier B,
+court-circuit rigide direct et indirect d'un servo, ports inconnus/instances
+répétées, poses incompatibles et interfaces géométriques manquantes.
+
+### user
+
+### user
+
+Document joint : demande de synthèse structurelle multi-corps guidée par un graphe
+cinématique, ports typés/corps/articulations, must-link/cannot-link, régions plein/
+vide, dégagements et qualification mécanique/fabrication. Pour le MVP : un corps
+à la fois puis validation globale ; pas de RL comme préalable. Pseudo-DSL proposé
+comme spécification, pas comme syntaxe déjà implémentée.
+
+Priorité d'interface ajoutée : sur la première page, ordonner les trois vues avec
+DSL, puis graphe cinématique 2D, puis vue 3D. Réponse de clarification explicite :
+trois onglets dans cet ordre, pas trois panneaux simultanés.
+
+### agent
+
+L'itération en cours traite cette priorité UI. Ordre DSL → Graphe cinématique 2D
+→ Vue 3D, DSL par défaut. L'onglet central affiche les instances et interfaces
+géométriques réellement présentes dans SemanticModel, sans inventer de liaisons
+mécaniques. Les articulations sont explicitement indisponibles tant que les
+contrats mécaniques demandés ne sont pas implémentés. Clic sur un objet : retour
+vers sa déclaration DSL uniquement lorsque la source est valide ; source invalide
+indiquée comme modèle précédent. Aucun nouveau backend ni type tiers.
+
+La demande complète du document reste ouverte : ce travail de navigation ne
+constitue pas l'implémentation de la synthèse/optimisation mécanique multi-corps.
+Validation prévue : ordre et navigation réelle des trois onglets aux deux tailles,
+mode vide et ports issus du DSL, diagnostic/stale model, édition/undo/export
+conservés, tests UI/CLI intégration existants et preuve native.
+
+### user
+
+### agent
+
+Tranche de navigation livrée : DSL, Graphe cinématique 2D, Vue 3D dans cet ordre,
+DSL sélectionné au démarrage. Les actions explicites de chargement géométrique
+gardent leur sélection 3D, les liens de source ouvrent le DSL. Le panneau central
+affiche les instances/interfaces réellement déclarées et indique les articulations
+non encore prises en charge ; aucune relation cinématique inventée. Source
+invalide : modèle précédent signalé, clic vers span obsolète bloqué.
+
+Tests : deux régressions de navigation aux tailles1080x680/1440x831, clics réels
+sur les trois onglets et les cartes d'instances ; vide/ports/source invalide.
+Le test historique des barres/caméra a échoué parce qu'il supposait la vue3D
+initiale ; il ouvre maintenant explicitement cet onglet avant les assertions
+de caméra, sans retirer ces assertions. Test ciblé passé, puis suite entière
+relancée et verte : 179 réussis, zéro ignoré. Fmt, Clippy workspace/all-targets/
+-D warnings et builddesktop passent ; quatre tests Python, architecture21/36,
+Ruff/actionlint et git diff --check passent.
+
+Preuve native après reconstruction :
+- docs/screenshots/design-tabs-dsl-20261020.png ;
+- docs/screenshots/design-tabs-graph-20261020.png ;
+- docs/screenshots/design-tabs-3d-20261020.png.
+Vrais clients1440x831, captures inspectées après clics natifs ; cadrage du bipède
+appliqué via son menu. Nouvelle application237642 laissée ouverte sur DSL.
+L'attente initiale de build a expiré pendant la reprise des tests, puis la
+vérification a été relancée après build et a réussi. Aucune fenêtre utilisateur
+précédente fermée.
+
+Spécification complète du document joint conservée dans
+docs/engineering/MECHANICAL_SYNTHESIS.md ; elle reste une cible à implémenter.
+Cette livraison ne réalise ni la synthèse multi-corps ni l'optimisation ou la
+validation de mobilité. TECHNICAL, architecture, README et mémoire mis à jour.
+Graphify local actualisé sans LLM : 1587 nœuds/3541 arêtes/188 communautés.
+Checkpoint local de la tranche UI validée préparé conformément aux autorisations
+précédentes ; pas de push/changement de branche ou lane.
+
+### user

@@ -6,6 +6,10 @@ simulation/optimisation pipelines are projections of the same semantic model.
 
 ## Current vertical slice
 
+Design opens on the DSL editor. Its tabs are ordered **DSL → Graphe cinématique
+2D → Vue 3D**. The 2D view shows declared object interfaces; mechanical joints
+are not yet supported.
+
 The Julia backend has been removed ([ADR-014](docs/adr/ADR-014-remove-julia-backend.md)).
 Minimum-mass optimization is explicitly unavailable on CPU/CUDA until a replacement
 is qualified. Typed DSL preparations remain editable; Rust fixed-volume stiffness

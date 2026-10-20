@@ -137,3 +137,19 @@ Validation itération8bis : 177 tests Rust réussis/0 ignoré, fmt et Clippy
 workspace, build desktop ; quatre tests Python, frontières21/36, Ruff, actionlint.
 Captures Design/Optimisation inspectées : 14 objets verts automatiques,
 CameraSupport sélectionné. Nouvelle fenêtre laissée ouverte pour inspection.
+
+# Itération 9 - Navigation Design demandée
+
+- [x] Confirmer le format trois onglets : DSL → Graphe cinématique 2D → Vue 3D.
+- [x] Ouvrir la page Design sur le DSL et préserver les accès explicites au code/3D.
+- [x] Ajouter une vue 2D des instances/interfaces avec état d'articulations indisponibles, sans relations inventées.
+- [x] Tester ordre, navigation, deux tailles et provenance du modèle affiché.
+- [x] Vérifier les gates, la vue native et documenter/committer la tranche UI validée.
+
+Le cahier de synthèse mécanique multi-corps fourni reste un objectif distinct
+non achevé par cette tranche de navigation.
+
+Validation itération9 : 179 tests réussis/0 ignoré, fmt/Clippy workspace, build
+desktop ; quatre tests Python, frontières21/36, Ruff/actionlint. Trois captures
+natives inspectées ; application laissée sur DSL. Checkpoint de la tranche UI
+validée préparé, sans clore la synthèse mécanique multi-corps demandée.

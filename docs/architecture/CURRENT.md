@@ -56,6 +56,11 @@ The viewport still uses CPU depth rasterization from `robogen-render`, displayed
 as an egui texture. Eframe composes the application through wgpu. This is not a
 new native CAD GPU pipeline; CPU preview costs remain a performance concern.
 The Design/Optimization/Learning navigation and unavailable states are retained.
+Design tabs are ordered DSL, Graphe cinématique 2D, Vue 3D, with DSL selected at
+startup. The 2D panel presents only declared instances/interfaces and valid source
+links; mechanical articulations remain explicitly unsupported. No mechanical
+connectivity is inferred from geometry or introduced by this presentation view.
+
 
 Declared object interfaces are automatically projected into
 `ProjectSnapshot.instance_interfaces`, keyed by ObjectInstanceId. A separate green

@@ -83,6 +83,12 @@ fn workflow_views_render_headlessly_without_actions() {
             ),
             (WorkspaceMode::Design, DesignTab::Dsl, 0, "Modèle valide"),
             (
+                WorkspaceMode::Design,
+                DesignTab::Kinematics,
+                0,
+                "Aucun objet instancié",
+            ),
+            (
                 WorkspaceMode::Optimization,
                 DesignTab::Viewport,
                 0,
@@ -263,6 +269,9 @@ fn two_top_bars_keep_global_and_workspace_controls_separate(
     let profile_output = frame(&mut state, &context, Vec::new());
     assert!(text_rect(&profile_output, "Profil non configuré").is_some());
     click(&mut state, &context, profile.center());
+    let viewport_tab = text_rect(&output, "Vue 3D").ok_or("missing 3D tab")?;
+    click(&mut state, &context, viewport_tab.center());
+    frame(&mut state, &context, Vec::new());
     let orbit_rect = icon_response(&context, "Orbite droite")
         .ok_or("missing orbit button")?
         .rect;

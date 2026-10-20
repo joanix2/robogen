@@ -78,6 +78,27 @@ all automatic green mounts were visually inspected with CameraSupport selected.
 The rebuilt application was left open; sources/constraints are not modified by
 this presentation overlay.
 
+## Design navigation (2026-10-20)
+
+Design uses three tabs, ordered DSL, Graphe cinématique 2D, Vue 3D. DSL is the
+initial selection. Explicit example/geometry actions retain their existing 3D
+selection; source links select DSL. The middle tab reads declared instances and
+named interfaces from the current semantic snapshot and provides source links.
+It shows empty/stale document states and explicitly marks mechanical joints as
+not yet supported. It does not infer joints or rigid attachments from positions.
+The full requested mechanical synthesis target is preserved in
+[the user specification](docs/engineering/MECHANICAL_SYNTHESIS.md); this UI
+change does not implement its optimization or mobility guarantees.
+
+Verification: 179 workspace tests passed, zero ignored; fmt, workspace Clippy/
+all-targets/-D warnings and desktop build passed. Two focused navigation tests
+exercise actual clicks at 1080x680 and 1440x831, valid/stale source links and
+empty/declared-port views. The old camera test now explicitly opens the 3D tab.
+Four Python boundary tests, the 21-crate/36-edge check, Ruff and actionlint pass.
+Native captures `docs/screenshots/design-tabs-*-20261020.png` were inspected;
+the application remains open on DSL. Local Graphify refreshed without LLM
+extraction: 1587 nodes, 3541 edges, 188 communities.
+
 ## Native CUDA Mass Solver (2026-10-08, Iteration 16)
 
 Optimisation now has an explicit CPU / GPU CUDA choice for minimum mass, CPU by

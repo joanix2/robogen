@@ -36,6 +36,7 @@ part Second { material: M; body = instance_shape(B); }
     assert_eq!(project.snapshot().instance_interfaces.len(), 2);
     assert!(state.show_instance_interfaces);
     state.show_components = false;
+    state.design_tab = DesignTab::Viewport;
     state.camera.target = robogen_render::Vec3::new(0.0, 0.0, 0.0);
     let context = Context::default();
     let _ = frame(&mut state, &context, Vec::new());

@@ -224,3 +224,14 @@
   passent/0 ignoré, fmt/Clippy/builddesktop et contrôles Python/architecture/Ruff/
   actionlint passent. Captures natives servo-auto-fixations-*-20261020.png
   inspectées, nouvelle application laissée ouverte en Optimisation pour revue.
+
+- Ticket17 itération9 : utilisateur confirme trois onglets Design dans l'ordre
+  DSL → Graphe cinématique 2D → Vue 3D ; DSL au démarrage. Actions explicites
+  d'exemples conservent leur sélection 3D. Vue2D des seuls objets/interfaces
+  déclarés, clic vers source valide, dernier modèle valide signalé et lien
+  bloqué si DSL invalide. Articulations explicitement indisponibles, aucune
+  liaison inférée/inventée. Cahier complet fourni conservé dans
+  docs/engineering/MECHANICAL_SYNTHESIS.md, objectif mécanique toujours ouvert.
+  179 tests workspace passent/0 ignoré, fmt/Clippy/builddesktop, quatre tests
+  Python, frontières21/36, Ruff/actionlint passent. Captures design-tabs-*-
+  20261020.png inspectées ; application reconstruite laissée ouverte sur DSL.

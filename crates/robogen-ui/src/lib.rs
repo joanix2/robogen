@@ -18,6 +18,7 @@ mod design;
 mod editor;
 mod examples;
 mod icons;
+mod kinematics;
 mod learning;
 mod library;
 mod mass_diagnostics;
@@ -49,8 +50,9 @@ impl Default for WorkspaceMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DesignTab {
-    Viewport,
     Dsl,
+    Kinematics,
+    Viewport,
 }
 
 #[derive(Debug, Clone)]
@@ -116,7 +118,7 @@ impl Default for RoboGenUi {
     fn default() -> Self {
         let mut state = Self {
             mode: WorkspaceMode::Design,
-            design_tab: DesignTab::Viewport,
+            design_tab: DesignTab::Dsl,
             optimization_tab: 0,
             selected_terrain: 1,
             taxonomy_filter: String::new(),

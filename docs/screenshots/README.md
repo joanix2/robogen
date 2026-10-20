@@ -202,3 +202,16 @@ Both are inspected native 1440x831 clients of the rebuilt application, captured
 after compilation and native menu/tab clicks without resizing/compositing.
 The new window was left open in Optimization for inspection. These automatic
 interface guides do not add mechanical loads/supports or qualify manufacturing.
+
+Design navigation, 2026-10-20:
+
+- [DSL](design-tabs-dsl-20261020.png): first tab, selected at application startup.
+- [2D graph](design-tabs-graph-20261020.png): second tab, declared instance/
+  interface cards, explicit unsupported articulation state, scrollable canvas.
+- [3D](design-tabs-3d-20261020.png): third tab, existing native robot preview
+  and automatic green mounts retained.
+
+Actual 1440x831 X11 clients of the rebuilt binary, inspected after native tab
+clicks, without resizing/compositing. The mini-biped menu applied its camera
+preset before capture. The application was left open on DSL afterward. These
+images validate navigation and source-backed display, not a kinematic solver.

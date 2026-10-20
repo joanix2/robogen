@@ -57,7 +57,12 @@ pub(super) fn tab_button(ui: &mut Ui, current: &mut DesignTab, target: DesignTab
                 1.0,
                 if selected { ACCENT_HOVER } else { BORDER },
             ));
-    if ui.add_sized([120.0, 31.0], button).clicked() {
+    let width = if target == DesignTab::Kinematics {
+        190.0
+    } else {
+        120.0
+    };
+    if ui.add_sized([width, 31.0], button).clicked() {
         *current = target;
     }
 }

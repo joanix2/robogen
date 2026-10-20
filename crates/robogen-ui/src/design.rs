@@ -9,14 +9,21 @@ impl RoboGenUi {
             .frame(Frame::new().fill(BACKGROUND).inner_margin(Margin::same(10)))
             .show(context, |ui| {
                 ui.horizontal(|ui| {
+                    tab_button(ui, &mut self.design_tab, DesignTab::Dsl, "DSL");
+                    tab_button(
+                        ui,
+                        &mut self.design_tab,
+                        DesignTab::Kinematics,
+                        "Graphe cinématique 2D",
+                    );
                     tab_button(ui, &mut self.design_tab, DesignTab::Viewport, "Vue 3D");
-                    tab_button(ui, &mut self.design_tab, DesignTab::Dsl, "Code DSL");
                 });
                 ui.add_space(4.0);
 
                 match self.design_tab {
                     DesignTab::Viewport => self.viewport(ui),
                     DesignTab::Dsl => self.dsl_editor(ui),
+                    DesignTab::Kinematics => self.kinematics_view(ui),
                 }
             });
     }

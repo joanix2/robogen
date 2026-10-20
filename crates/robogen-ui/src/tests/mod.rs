@@ -12,3 +12,5 @@ mod viewport;
 mod mass_unavailable;
 
 mod instance_regions;
+
+mod design_navigation;
