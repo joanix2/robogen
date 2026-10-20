@@ -1,42 +1,57 @@
 use super::*;
 
+pub(super) const INSTANCE_INTERFACE_COLOR: Color32 = Color32::from_rgb(75, 215, 120);
+
 impl RoboGenUi {
     pub(super) fn viewport(&mut self, ui: &mut Ui) {
-        if self
+        let has_preparation = self
             .document
             .project()
-            .is_some_and(|project| !project.snapshot().preparation.is_empty())
-        {
+            .is_some_and(|project| !project.snapshot().preparation.is_empty());
+        let instance_count = self
+            .document
+            .project()
+            .map_or(0, |project| project.snapshot().instance_interfaces.len());
+        if has_preparation || instance_count > 0 {
             let mut changed = false;
             ui.horizontal_wrapped(|ui| {
-                changed |= ui
-                    .checkbox(&mut self.show_components, "Composants")
-                    .changed();
-                changed |= ui.checkbox(&mut self.show_results, "Résultats").changed();
-                if self.mode == WorkspaceMode::Optimization {
-                    changed |= ui.checkbox(&mut self.show_densities, "Densités").changed();
+                if has_preparation {
+                    changed |= ui
+                        .checkbox(&mut self.show_components, "Composants")
+                        .changed();
+                    changed |= ui.checkbox(&mut self.show_results, "Résultats").changed();
+                    if self.mode == WorkspaceMode::Optimization {
+                        changed |= ui.checkbox(&mut self.show_densities, "Densités").changed();
+                    }
+                    for (index, (label, color)) in [
+                        ("Domaine", Color32::from_rgb(100, 160, 255)),
+                        ("Conserver", Color32::from_rgb(75, 215, 120)),
+                        ("Exclure", Color32::from_rgb(255, 100, 85)),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        changed |= ui
+                            .checkbox(
+                                &mut self.show_regions[index],
+                                RichText::new(label).color(color),
+                            )
+                            .changed();
+                    }
                 }
-                for (index, (label, color)) in [
-                    ("Domaine", Color32::from_rgb(100, 160, 255)),
-                    ("Conserver", Color32::from_rgb(75, 215, 120)),
-                    ("Exclure", Color32::from_rgb(255, 100, 85)),
-                ]
-                .into_iter()
-                .enumerate()
-                {
+                if instance_count > 0 {
                     changed |= ui
                         .checkbox(
-                            &mut self.show_regions[index],
-                            RichText::new(label).color(color),
+                            &mut self.show_instance_interfaces,
+                            RichText::new(format!("Fixations auto · {instance_count} objets"))
+                                .color(INSTANCE_INTERFACE_COLOR),
                         )
+                        .on_hover_text(concat!(
+                            "Interfaces générées pour chaque instance, indépendamment du support sélectionné. ",
+                            "Ce repère géométrique n'ajoute pas de charge ni d'appui."
+                        ))
                         .changed();
                 }
-                changed |= ui
-                    .checkbox(
-                        &mut self.show_instance_interfaces,
-                        RichText::new("Interface").color(Color32::from_rgb(0, 210, 210)),
-                    )
-                    .changed();
             });
             if changed {
                 self.rebuild_preview();
@@ -132,7 +147,7 @@ impl RoboGenUi {
         }
 
         if self.show_instance_interfaces {
-            let color = Color32::from_rgb(0, 210, 210);
+            let color = INSTANCE_INTERFACE_COLOR;
             let frame = self.preview_renderer.render_mesh(
                 &self.camera,
                 ViewportSize::new(rect.width(), rect.height()),

@@ -190,3 +190,13 @@ utilisables. Pour le PLA imprimé : référence/lot, orientation, parois/remplis
 module, coefficient de Poisson, résistance admissible et conditions d'essai.
 Les charges statiques seront dérivées de ces entrées et des poses retenues ; ni
 charge de marche ni marge dynamique ne sera déduite d'une simple ressemblance.
+
+## Fixations vertes automatiques
+
+Les 14 instances de `servo_object` génèrent chacune les deux bagues de fixation
+`housing` sous leur pose commune : 28 zones au total. La vue affiche ces zones
+en vert par défaut via **Fixations auto · 14 objets**, même lorsqu'un seul
+support est sélectionné. Il n'est pas nécessaire de les recopier dans chaque
+préparation pour les visualiser. Le domaine et les zones de matière retenues
+par une pièce restent distincts de cette vue des fixations des composants.
+L'affichage ne valide ni les fixations réelles ni les charges mécaniques.

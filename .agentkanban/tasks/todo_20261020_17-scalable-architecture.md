@@ -121,7 +121,19 @@ d'autorisation explicite.
 
 - [x] Confirmer que l’interface verte doit apparaître sur les 14 servos, quelle que soit la préparation sélectionnée.
 - [x] Séparer l’affichage visuel de l’interface des régions TopOpt propres à chaque pièce ; ne pas ajouter d’appuis/charges implicites.
-- [ ] Projeter l’interface `housing` de chaque instance servo vers un overlay placé selon sa pose.
-- [ ] Ajouter un contrôle et une légende qui distinguent l’interface servo des couches « Conserver » et « Exclure ».
-- [ ] Tester la présence des 14 interfaces et leur géométrie commune après prise en compte des poses ; vérifier que les TopologySpec restent inchangés.
-- [ ] Vérifier le parcours natif du mini-bipède et documenter le comportement dans TECHNICAL.md.
+- [x] Projeter l’interface `housing` de chaque instance servo vers un overlay placé selon sa pose.
+- [x] Ajouter un contrôle et une légende qui distinguent l’interface servo des couches « Conserver » et « Exclure ».
+- [x] Tester la présence des 14 interfaces et leur géométrie commune après prise en compte des poses ; vérifier que les TopologySpec restent inchangés.
+- [x] Vérifier le parcours natif du mini-bipède et documenter le comportement dans TECHNICAL.md.
+
+# Itération 8 bis - Vert automatique demandé
+
+- [x] Constater les 14 interfaces projetées et la couche cyan non conforme au vert attendu.
+- [x] Afficher automatiquement toutes les fixations en vert, avec légende et nombre d'objets.
+- [x] Vérifier sans TopOpt, avec les 14 servos et en changeant de support ; aucune modification des contraintes mécaniques.
+- [x] Gates workspace, build et capture native du mini-bipède actualisé.
+
+Validation itération8bis : 177 tests Rust réussis/0 ignoré, fmt et Clippy
+workspace, build desktop ; quatre tests Python, frontières21/36, Ruff, actionlint.
+Captures Design/Optimisation inspectées : 14 objets verts automatiques,
+CameraSupport sélectionné. Nouvelle fenêtre laissée ouverte pour inspection.

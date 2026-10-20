@@ -57,6 +57,13 @@ as an egui texture. Eframe composes the application through wgpu. This is not a
 new native CAD GPU pipeline; CPU preview costs remain a performance concern.
 The Design/Optimization/Learning navigation and unavailable states are retained.
 
+Declared object interfaces are automatically projected into
+`ProjectSnapshot.instance_interfaces`, keyed by ObjectInstanceId. A separate green
+mount overlay shows every instance's interfaces independently of the currently
+selected topology part, also in documents without TopologySpec. Its visibility
+is presentation state; it adds no mechanical load/support or accepted geometry.
+
+
 ## Scientific adapters
 
 [ADR-014](../adr/ADR-014-remove-julia-backend.md) records the user's immediate

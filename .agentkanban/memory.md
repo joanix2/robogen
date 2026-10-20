@@ -214,3 +214,13 @@
   dédié, distinct des couches TopOpt Conserver/Exclure). Plan validé, exploration
   du chemin de rendu en cours, aucune implémentation encore ; aucune modification
   des TopologySpec, appuis, charges ou résultats d'optimisation prévue.
+
+- Ticket17 itération8bis : après HEAD3a1c90b, correction de l'overlay d'interfaces
+  cyan en vert, légende Fixations auto avec nombre d'objets, visible par défaut
+  indépendamment du support sélectionné et même sans TopOpt. Les 14 servos
+  possèdent chacun leurs deux bagues housing automatiquement projetées ; aucun
+  TopologySpec/appui/charge modifié. Deux régressions UI ajoutées (vert peint,
+  masquage et présence des 14 overlays pour les 11 sélections). 177 tests workspace
+  passent/0 ignoré, fmt/Clippy/builddesktop et contrôles Python/architecture/Ruff/
+  actionlint passent. Captures natives servo-auto-fixations-*-20261020.png
+  inspectées, nouvelle application laissée ouverte en Optimisation pour revue.

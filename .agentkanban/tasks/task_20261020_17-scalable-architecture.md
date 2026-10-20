@@ -588,3 +588,56 @@ push ni changement de branche. L'itération 8 (overlay vert des interfaces servo
 reste à implémenter ; les sessions d'exploration du chemin de rendu sont en cours.
 
 ### user
+
+### user
+
+Ça ne marche pas : toutes les contraintes vertes par servo doivent être générées
+automatiquement (capture native des zones rouges/bleues et d'un seul transfert vert).
+
+### agent
+
+État constaté à la reprise : HEAD 3a1c90b inclut déjà le contrat Object/Instance
+(1a92a8a) et la projection des interfaces des 14 servos. L'overlay dédié était
+cyan, nommé Interface ; les régions vertes visibles dépendaient du TopologySpec
+de la pièce. Ne pas refaire ni écraser ces commits existants.
+
+Correction ciblée : l'overlay de toutes les fixations d'instances est vert et
+activé par défaut, avec légende Fixations auto et nombre d'objets. Il reste
+indépendant du support sélectionné et apparaît même sans déclaration TopOpt.
+Les deux bagues locales housing sont générées par le template pour chacune des
+14 occurrences, pas ajoutées manuellement à chaque support. Ce sont des régions
+géométriques de fixation ; aucune charge/appui ou validation mécanique implicite.
+Tests : scène sans TopOpt, vert réellement peint et masquage ; scène mini-bipède,
+14 meshes conservés pour tous les changements de support, TopologySpec inchangés.
+Vérification native du binaire reconstruit nécessaire avant livraison.
+
+### user
+
+### agent
+
+Correction vérifiée sur le binaire reconstruit. Les 14 instances servo exposent
+automatiquement leurs deux bagues housing, soit 28 régions géométriques de
+fixation ; affichage vert par défaut avec légende Fixations auto · 14 objets.
+L'overlay reste présent en choisissant n'importe lequel des 11 supports. La
+scène sans TopOpt a également son contrôle et son vert réellement peint.
+Masquer cette couche reste un choix de présentation, sans modifier les sources.
+
+Preuves : 177 tests workspace réussis, zéro ignoré ; fmt, Clippy workspace/
+all-targets/-D warnings, build desktop, quatre tests Python, architecture21/36,
+Ruff et actionlint passent. Tests UI ciblés2/2 en21s. Les TopologySpec, charges,
+appuis, gardes d'export et statuts scientifiques restent inchangés.
+
+Captures natives finales inspectées, vrais clients1440x831 :
+- docs/screenshots/servo-auto-fixations-design-20261020.png ;
+- docs/screenshots/servo-auto-fixations-optimization-20261020.png.
+La seconde montre CameraSupport sélectionné et toutes les fixations servo
+vertes, sans recopie de ces régions dans la préparation caméra. Nouveau
+processus222026 laissé ouvert en Optimisation pour inspection. L'ancienne
+fenêtre utilisateur n'a pas été fermée.
+
+TECHNICAL, architecture, README bipède, légende des captures et mémoire mis à
+jour. Graphify local actualisé sans LLM (1559 nœuds/3528 arêtes/170 communautés).
+Préparation du checkpoint local de la correction validée, conformément aux
+autorisations de commits précédentes ; aucun push ni changement de branche.
+
+### user

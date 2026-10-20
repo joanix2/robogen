@@ -188,3 +188,17 @@ Julia removal, 2026-10-20 (ADR-014):
 
 Older Julia/CUDA screenshots above are historical and do not represent the
 current backend capabilities.
+
+Automatic servo mounts, 2026-10-20:
+
+- [Design](servo-auto-fixations-design-20261020.png): all 14 servo instances
+  automatically display their green housing interfaces (two contact rings each).
+  `Fixations auto · 14 objets` is checked by default.
+- [Optimization](servo-auto-fixations-optimization-20261020.png): CameraSupport
+  is selected, yet the green mounts of all 14 servos remain visible. No servo
+  preserve regions were manually added to this camera support.
+
+Both are inspected native 1440x831 clients of the rebuilt application, captured
+after compilation and native menu/tab clicks without resizing/compositing.
+The new window was left open in Optimization for inspection. These automatic
+interface guides do not add mechanical loads/supports or qualify manufacturing.

@@ -52,6 +52,32 @@ Validation: 10 focused instance tests, the biped integration test (identical
 geometry), workspace fmt/Clippy/tests (173 passed, zero ignored), four Python
 boundary tests, architecture 21 crates/36 edges and Ruff pass.
 
+## Automatic green instance mounts (2026-10-20)
+
+Every declared Object instance owns all of its local interface geometry under its
+single pose. Project projects these interfaces into `instance_interfaces` for
+all instances, independently of TopologySpec selection. The mini-biped therefore
+has 14 automatic interface meshes, each containing its two housing contact rings.
+The viewport displays these in green by default as `Fixations auto · 14 objets`,
+in both Design and Optimization, including when CameraSupport is selected.
+The control is also available in scenes without any topology declaration.
+
+These geometric mounts are distinct from the selected support's preserve regions.
+Showing all mounts does not add implicit loads/supports, modify a TopologySpec,
+enable minimum-mass execution or make a mesh exportable. Repeating an Object
+instance repeats its interfaces with that instance's pose and identity.
+Regression tests verify actual green painted lines, hide/show behavior without
+TopOpt, all 14 meshes retained across all 11 support selections, and unchanged
+scientific specifications/export guards.
+
+Validation: 177 workspace tests passed, zero ignored, fmt and Clippy workspace/
+all-targets/-D warnings passed, desktop rebuilt. Four Python architecture tests,
+21-crate/36-edge boundary check, Ruff and actionlint passed. Native Design and
+Optimization captures are in docs/screenshots/servo-auto-fixations-*-20261020.png;
+all automatic green mounts were visually inspected with CameraSupport selected.
+The rebuilt application was left open; sources/constraints are not modified by
+this presentation overlay.
+
 ## Native CUDA Mass Solver (2026-10-08, Iteration 16)
 
 Optimisation now has an explicit CPU / GPU CUDA choice for minimum mass, CPU by
